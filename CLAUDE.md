@@ -44,6 +44,19 @@ resolves `resource://vimfox/`.
 - Suppression is MODE-SCOPED except `ALWAYS_ON`. `key_paste` collides with
   `C-v`; killing it permanently breaks Ctrl+V in the urlbar. Only `key_close`
   is permanently dead (C-w is ALWAYS_ON).
+- The collision scan runs over the `<key>` elements WE REGISTERED, never over
+  `BINDINGS`. The two keycode keys (Escape, Shift+Escape) are built by hand
+  outside that table, and a BINDINGS-driven scan cannot see them — which left
+  `key_aboutProcesses` live and made Shift+Escape open about:processes instead
+  of leaving passthrough mode. `key_stop` is the same collision on plain
+  Escape.
+- Each of our keys and its built-in twins move as one pair through `enable()`:
+  ours on means theirs off, always. Bare unmodified characters are skipped —
+  nothing built-in binds a plain letter.
+- Initial state is set explicitly when the keyset is built. `setMode()` returns
+  early when the mode is unchanged, so a window opening in normal mode never
+  calls the setters, and anything left at its default stays wrong until the
+  first real mode change.
 - Dynamically added `<key>` needs keyset remove + re-append to register.
 - Matching is strict key+modifiers. `:` = shift+`;` (US) or shift+`.`
   (Nordic). Uppercase letters need `modifiers="shift"`. Bind every candidate.
@@ -119,6 +132,37 @@ Ported from Vimium 2.4.2. Do not approximate it — read the source in the xpi.
 `.no-insert-text`) — unscoped they style the whole browser UI. Positioning
 overrides live in `window.js`, not that file.
 
+## Bottom address bar / vertical tabs
+
+- `<body>` in browser.xhtml is `display:flex; flex-direction:column`, with
+  `#navigator-toolbox` and `#browser` as plain siblings. `order: 1` on the
+  toolbox is the ENTIRE bottom-bar change. No reparenting.
+- Vertical tabs are Firefox's own: `sidebar.revamp` + `sidebar.verticalTabs`.
+  `sidebar.visibility` must ALSO be `always-show` — the profile had it at
+  `hide-sidebar`, which leaves the strip on but invisible, and looks exactly
+  like the prefs not applying.
+- No `userChrome.css`. window.js already injects a stylesheet, so
+  `toolkit.legacyUserProfileCustomizations.stylesheets` is not needed.
+- which-key and toasts sit at the bottom edge, which the toolbox now occupies.
+  They read `--vimfox-chrome-bottom`, fed by a ResizeObserver on the toolbox —
+  a constant would be wrong in fullscreen and when the bookmarks bar toggles.
+
+## The one urlbar internal we do depend on
+
+The mode chip is appended to `#urlbar .urlbar-input-container`, next to
+Firefox's own `#urlbar-search-mode-indicator`. That is a real dependency on the
+least stable API in the browser, taken deliberately because nothing else makes
+it look native. Contained by:
+
+- If the row is missing, the chip sets `[detached]` and goes back to a fixed
+  corner badge. Degrades, never vanishes.
+- The self-test FAILS on the detached path, so the fallback cannot rot silently.
+
+`moz-urlbar` builds `.urlbar-input-container` in `connectedCallback`, and
+`#populateSlots` MOVES `[urlbar-slot]` children into place then deletes the
+slot elements — slots are construction-time only, useless to us. window.js runs
+on the window `load` event, so the row already exists; no retry needed.
+
 ## Self-test
 
 `VIMFOX_SELFTEST=1 ./run.sh about:blank` → `SELFTEST PASSED` on stdout.
@@ -147,4 +191,8 @@ logging freely; strip when done.
 - Mozilla intends to remove `sandbox_enabled`. Then: ESR or nothing.
 - Paths hardcoded to `/home/thomal`.
 - Urlbar internals are the least stable API in Firefox. FF152 already replaced
-  it (`moz-urlbar` custom element + `SmartbarInput.mjs`). Avoid depending on it.
+  it (`moz-urlbar` custom element + `SmartbarInput.mjs`). One dependency is
+  taken on purpose — see "The one urlbar internal we do depend on". Add no
+  more. In particular the results panel positions itself by an INLINE
+  `style.top` recomputed in `UrlbarInput.#updateTextboxPosition()` on every
+  open/resize/fullscreen change: do not try to host the omnibar in it.

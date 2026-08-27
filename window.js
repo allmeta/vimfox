@@ -534,7 +534,8 @@
     updateEscape();
     broadcastMode();
     log(`mode -> ${mode}`);
-    indicator.textContent = `-- ${mode.toUpperCase()} --`;
+    // Bare word: the vim `-- INSERT --` dashes are redundant inside a chip.
+    indicator.textContent = mode;
     indicator.dataset.mode = mode;
   }
 
@@ -689,6 +690,9 @@
     ]);
 
     const keys = [];
+    // ALWAYS_ON chords: ours fires in every mode, so whatever they collide with
+    // must stay dead in every mode.
+    const alwaysKeys = [];
 
     // Characters needing Shift that are not uppercase letters, so the
     // `ch !== ch.toLowerCase()` test misses them. XUL matches key + modifiers
@@ -733,7 +737,7 @@
       key.addEventListener("command", () => dispatch(combo));
       // ALWAYS_ON bindings stay out of `keys`, which is what insert mode
       // disables — Ctrl+W must work precisely while you are typing.
-      if (!ALWAYS_ON.has(combo)) keys.push(key);
+      (ALWAYS_ON.has(combo) ? alwaysKeys : keys).push(key);
       el.appendChild(key);
     }
 
@@ -764,35 +768,42 @@
     el.remove();
     document.documentElement.appendChild(el);
 
-    // Firefox's own <key> elements beat ours for the same chord — Ctrl+W was
-    // close-tab, Ctrl+D bookmark, Ctrl+U view-source. Rather than chase
-    // element ids one at a time, disable every built-in that collides with a
-    // modifier binding of ours.
-    // Built-ins that only need suppressing while we are actually using the
-    // chord — i.e. in normal mode. Ctrl+V is the reason this matters: our
-    // passthrough binding is normal-mode only, so killing key_paste outright
-    // would break Ctrl+V in the urlbar for no gain.
-    const builtinsNormal = [];
-    // Collisions with ALWAYS_ON bindings must stay dead in every mode, since
-    // ours fires in every mode (Ctrl+W vs key_close).
-    const builtinsAlways = [];
+    // Firefox's own <key> elements beat ours for the same chord — reserved="true"
+    // beats CONTENT, not other chrome keys. Ctrl+W was close-tab, Ctrl+D
+    // bookmark, Ctrl+U view-source, Shift+Escape the process manager.
+    //
+    // Scanned over the keys we actually registered, NOT over BINDINGS: the
+    // keycode bindings (Escape, Shift+Escape) are built by hand below the
+    // BINDINGS loop, so a BINDINGS-driven scan cannot see them. That hole is
+    // what left key_aboutProcesses live and made Shift+Escape open
+    // about:processes instead of leaving passthrough mode.
+    const chordOf = (k) => {
+      const mods = (k.getAttribute("modifiers") || "").toLowerCase();
+      return [
+        k.getAttribute("keycode") || (k.getAttribute("key") || "").toLowerCase(),
+        mods.includes("accel") || mods.includes("control"),
+        mods.includes("alt"),
+        mods.includes("shift"),
+      ].join("/");
+    };
 
-    for (const combo of Object.keys(BINDINGS).filter(isCombo)) {
-      const ch = combo.slice(2).toLowerCase();
-      const wantAlt = combo[0] === "A";
-      for (const k of document.querySelectorAll("key")) {
-        if (k.parentElement === el) continue; // ours
-        if ((k.getAttribute("key") || "").toLowerCase() !== ch) continue;
-        const mods = (k.getAttribute("modifiers") || "").toLowerCase();
-        // Leave Ctrl+Shift+X and friends alone; none of our combos use shift.
-        if (mods.includes("shift")) continue;
-        const isAlt = mods.includes("alt");
-        const isAccel = mods.includes("accel") || mods.includes("control");
-        if (wantAlt ? isAlt : isAccel && !isAlt) {
-          (ALWAYS_ON.has(combo) ? builtinsAlways : builtinsNormal).push(k);
-        }
-      }
+    // Bare single-character keys are deliberately not scanned: nothing built-in
+    // binds an unmodified letter, and matching them would drag in unrelated
+    // <key key="..."> elements from panels.
+    const builtins = new Map();
+    const theirs = [...document.querySelectorAll("key")].filter(
+      (k) => k.parentElement !== el
+    );
+    for (const ours of el.querySelectorAll("key")) {
+      if (!ours.hasAttribute("modifiers") && !ours.hasAttribute("keycode")) continue;
+      const chord = chordOf(ours);
+      const hits = theirs.filter((k) => chordOf(k) === chord);
+      if (hits.length) builtins.set(ours, hits);
     }
+
+    const collisionsOf = (list) => list.flatMap((k) => builtins.get(k) ?? []);
+    const builtinsNormal = collisionsOf(keys);
+    const builtinsAlways = collisionsOf(alwaysKeys);
 
     for (const k of builtinsAlways) k.setAttribute("disabled", "true");
     log(
@@ -806,21 +817,39 @@
     const setDisabled = (node, off) =>
       off ? node.setAttribute("disabled", "true") : node.removeAttribute("disabled");
 
+    // One of ours and its built-in twins always move in opposite directions:
+    // whenever we are listening for a chord, Firefox is not, and the moment we
+    // stop, it gets the chord back. Single writer, so the two cannot drift.
+    const enable = (ours, on) => {
+      setDisabled(ours, !on);
+      for (const k of builtins.get(ours) ?? []) setDisabled(k, on);
+    };
+
+    // Startup state has to match `mode = "normal"` up front. setMode() returns
+    // early when the mode is unchanged, so a window that opens in normal mode
+    // never calls these — the built-ins would stay live until the first real
+    // mode change, which is how Shift+Escape stayed Firefox's outside
+    // passthrough too.
+    for (const k of keys) enable(k, true);
+    enable(esc, false);
+    enable(passthroughExit, false);
+
     return {
       element: el,
       escape: esc,
       builtinsNormal,
       setEnabled(on) {
-        for (const k of keys) setDisabled(k, !on);
-        // Hand the chords back to Firefox whenever ours are not listening.
-        for (const k of builtinsNormal) setDisabled(k, on);
+        for (const k of keys) enable(k, on);
       },
       passthroughExit,
+      // Shift+Escape is the one key passthrough mode keeps for itself, so
+      // key_aboutProcesses has to be dead for exactly as long as that mode
+      // lasts — and live again the instant it ends.
       setPassthroughExitEnabled(on) {
-        setDisabled(passthroughExit, !on);
+        enable(passthroughExit, on);
       },
       setEscapeEnabled(on) {
-        setDisabled(esc, !on);
+        enable(esc, on);
       },
       destroy: () => el.remove(),
     };
@@ -1421,22 +1450,52 @@
     };
   })();
 
-  // Mode indicator, parked in the command bar's row.
+  // Mode indicator. Lives INSIDE the address bar's input row, as a sibling of
+  // Firefox's own search-mode chip (#urlbar-search-mode-indicator), so it
+  // reads as part of the chrome instead of an overlay pasted over it.
   const indicator = document.createElementNS(HTML, "span");
   indicator.id = "vimfox-mode";
-  indicator.style.cssText =
-    "position:fixed;bottom:0;inset-inline-end:0;z-index:2147483646;" +
-    "font:12px/1.6 monospace;padding:1px 8px;pointer-events:none;" +
-    "border-start-start-radius:4px;letter-spacing:.5px;";
-  const indicatorStyle = document.createElementNS(HTML, "style");
-  indicatorStyle.textContent = `
-    #vimfox-mode[data-mode="normal"]  { background:#2b6cb0; color:#fff; }
-    #vimfox-mode[data-mode="insert"]  { background:#2f855a; color:#fff; }
-    #vimfox-mode[data-mode="command"] { background:#975a16; color:#fff; }
-    #vimfox-mode[data-mode="passthrough"] { background:#805ad5; color:#fff; }
+
+  const chromeStyle = document.createElementNS(HTML, "style");
+  chromeStyle.textContent = `
+    /* Address bar at the BOTTOM. browser.xhtml's <body> is a flex column with
+       #navigator-toolbox and #browser as plain siblings, so reordering is the
+       whole trick — no reparenting, nothing for Firefox to undo. Vertical tabs
+       are Firefox's own (sidebar.revamp + sidebar.verticalTabs in user.js). */
+    #navigator-toolbox { order: 1; }
+
+    #vimfox-mode {
+      display: flex;
+      align-items: center;
+      margin-inline: 6px 2px;
+      padding: 3px 7px;
+      border-radius: var(--urlbar-inner-border-radius, 4px);
+      font: 600 10px/1 system-ui, sans-serif;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      pointer-events: none;
+      background: color-mix(in srgb, var(--vimfox-accent) 16%, transparent);
+      color: var(--vimfox-accent);
+    }
+
+    /* Fallback only: the address bar is the least stable API in Firefox (see
+       CLAUDE.md), so if its input row ever disappears the chip becomes a
+       corner badge again rather than vanishing. */
+    #vimfox-mode[detached] {
+      position: fixed; bottom: 0; inset-inline-end: 0; z-index: 2147483646;
+      background: var(--vimfox-accent); color: #fff;
+      border-start-start-radius: 4px;
+    }
+
+    #vimfox-mode[data-mode="normal"]      { --vimfox-accent: light-dark(#2b6cb0, #7cacf8); }
+    #vimfox-mode[data-mode="insert"]      { --vimfox-accent: light-dark(#2f855a, #5bc98d); }
+    #vimfox-mode[data-mode="command"]     { --vimfox-accent: light-dark(#975a16, #e3b04b); }
+    #vimfox-mode[data-mode="passthrough"] { --vimfox-accent: light-dark(#6b46c1, #b98cf7); }
 
     #vimfox-whichkey {
-      position: fixed; inset-inline-end: 0; bottom: 22px; z-index: 2147483646;
+      position: fixed; inset-inline-end: 0; bottom: var(--vimfox-chrome-bottom, 22px);
+      z-index: 2147483646;
       font: 12px/1.7 monospace; padding: 6px 10px; pointer-events: none;
       border-start-start-radius: 6px;
       background: light-dark(#fff, #1c1b22);
@@ -1452,7 +1511,8 @@
     #vimfox-whichkey span { opacity: .75; }
 
     #vimfox-toast {
-      position: fixed; inset-inline-end: 0; bottom: 22px; z-index: 2147483646;
+      position: fixed; inset-inline-end: 0; bottom: var(--vimfox-chrome-bottom, 22px);
+      z-index: 2147483646;
       font: 12px/1.7 monospace; padding: 6px 10px; pointer-events: none;
       border-start-start-radius: 6px;
       background: light-dark(#fff, #1c1b22);
@@ -1517,12 +1577,30 @@
     };
   })();
 
-  document.documentElement.append(
-    indicatorStyle,
-    indicator,
-    whichKey.element,
-    toast.element
+  document.documentElement.append(chromeStyle, whichKey.element, toast.element);
+
+  // window.js runs on the window's load event, so <html:moz-urlbar> has already
+  // built its input row by now — no retry needed.
+  const urlbarRow = document.querySelector("#urlbar .urlbar-input-container");
+  if (urlbarRow) {
+    urlbarRow.append(indicator);
+  } else {
+    log("urlbar input row missing; mode chip detached");
+    indicator.setAttribute("detached", "");
+    document.documentElement.append(indicator);
+  }
+
+  // which-key and toasts hug the bottom edge, which the toolbox now occupies.
+  // Track its height rather than guessing — it changes in fullscreen and when
+  // the bookmarks toolbar toggles.
+  const toolbox = document.getElementById("navigator-toolbox");
+  const toolboxObserver = new win.ResizeObserver(([entry]) =>
+    document.documentElement.style.setProperty(
+      "--vimfox-chrome-bottom",
+      `${entry.contentRect.height + 6}px`
+    )
   );
+  if (toolbox) toolboxObserver.observe(toolbox);
 
   // ------------------------------------------------------------- ex cmds ---
 
@@ -1556,7 +1634,9 @@
       palette.destroy();
       whichKey.destroy();
       toast.destroy();
+      toolboxObserver.disconnect();
       indicator.remove();
+      chromeStyle.remove();
       delete win.VimFox;
     },
   };
@@ -1683,6 +1763,17 @@
       !!document.querySelector('link[href="resource://vimfox/vomnibar.css"]')
     );
     check("mode indicator missing", !!document.getElementById("vimfox-mode"));
+    // The chip only looks native while it is actually in the address bar; the
+    // detached fallback is a degradation, not a pass.
+    check(
+      "mode chip not inside the address bar row",
+      indicator.parentElement?.classList.contains("urlbar-input-container")
+    );
+    check(
+      "toolbox not ordered below the content area",
+      win.getComputedStyle(document.getElementById("navigator-toolbox")).order ===
+        "1"
+    );
 
     const keyEl = keyset.element.querySelector('key[key="j"]');
     const escEl = keyset.element.querySelector("key[keycode]");
@@ -1709,6 +1800,29 @@
       escEl.hasAttribute("disabled")
     );
     setMode("normal");
+
+    // Shift+Escape is the only way out of passthrough, and Firefox binds the
+    // same chord to the process manager. Whichever of the two is enabled wins,
+    // so they must be exact opposites — Shift+Escape used to open
+    // about:processes instead of leaving the mode.
+    const aboutProcesses = document.getElementById("key_aboutProcesses");
+    check("key_aboutProcesses missing (Shift+Escape check is vacuous)", !!aboutProcesses);
+    check(
+      "Shift+Escape not released to Firefox outside passthrough",
+      keyset.passthroughExit.hasAttribute("disabled") &&
+        !aboutProcesses?.hasAttribute("disabled")
+    );
+    setMode("passthrough");
+    check(
+      "Shift+Escape not grabbed in passthrough mode",
+      !keyset.passthroughExit.hasAttribute("disabled") &&
+        aboutProcesses?.hasAttribute("disabled")
+    );
+    setMode("normal");
+    check(
+      "key_aboutProcesses not restored after passthrough",
+      !aboutProcesses?.hasAttribute("disabled")
+    );
 
     // A page focusing its own field must not pull us into insert mode.
     setMode("normal");

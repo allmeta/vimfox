@@ -25,3 +25,11 @@ user_pref("browser.newtabpage.enabled", false);
 user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
 user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
 user_pref("browser.aboutwelcome.enabled", false);
+
+// Vertical tabs, Firefox's own — no code, and it frees the top edge so the
+// address bar can move to the bottom (that half is one CSS rule in window.js).
+// visibility must be set too: the profile had it at "hide-sidebar", which
+// leaves verticalTabs on but the strip invisible.
+user_pref("sidebar.revamp", true);
+user_pref("sidebar.verticalTabs", true);
+user_pref("sidebar.visibility", "always-show");
