@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>vimfox test</title>
+<style>
+  body { font: 14px system-ui; margin: 2rem; max-width: 40rem; }
+  input, textarea { display: block; margin: .5rem 0; width: 20rem; }
+  .hidden { display: none; }
+</style>
+
+<h1>vimfox test page</h1>
+
+<p>Press <b>gi</b>: the first input focuses and all of them get outlined.
+   <b>Tab</b> cycles, <b>Shift+Tab</b> goes back, any other key ends cycling.</p>
+
+<input id="a" placeholder="first (autofocus off, so gi picks it)">
+<input id="b" type="search" placeholder="second, type=search">
+<input id="c" type="email" placeholder="third, type=email">
+<textarea id="d" rows="3" placeholder="fourth, a textarea"></textarea>
+<div id="e" contenteditable="true" style="border:1px solid #999;padding:.4rem;width:20rem">
+  fifth, contenteditable
+</div>
+
+<p>These must NOT be picked up by gi:</p>
+<input type="checkbox"> checkbox
+<input type="submit" value="submit">
+<input placeholder="disabled" disabled>
+<input placeholder="readonly" readonly>
+<input class="hidden" placeholder="display:none">
+
+<p><a href="#x">a link, not editable</a></p>
+
+<div style="height:3000px">tall, so scrolling has somewhere to go</div>

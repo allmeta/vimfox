@@ -1,0 +1,8 @@
+# Regenerated on every launch.
+vimfox.log
+
+# A live Firefox profile: cookies, history, places.sqlite, session data.
+# Only the two files we actually author are tracked.
+profile/*
+!profile/user.js
+!profile/.vimfox
