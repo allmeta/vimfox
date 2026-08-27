@@ -1,0 +1,150 @@
+# CLAUDE.md — vimfox domain knowledge
+
+Hard-won facts. Most were bugs first. Read before changing anything.
+
+## Shape
+
+```
+autoconfig.cfg (root, /usr/lib/firefox)
+  └─ boot.js            parent process, chrome privilege
+       ├─ resource://vimfox/  → ~/.vimfox   (PARENT ONLY)
+       ├─ child.js  read by parent, shipped to content as data: URI
+       └─ window.js loaded per browser.xhtml window
+```
+
+Mode lives in the parent. Parent is authoritative. Content only reports focus.
+
+## Environment traps
+
+- `general.config.sandbox_enabled=false` REQUIRED. Else `Cc is not defined`
+  and nothing loads. Lives in `defaults/pref/autoconfig.js`, NOT `user.js` —
+  AutoConfig runs before profile prefs.
+- `Services` is a global. `Services.sys.mjs` was REMOVED. Don't import it.
+- `IOUtils` does NOT exist in AutoConfig scope. Use nsIFileInputStream +
+  nsIConverterInputStream.
+- `dump()` needs `browser.dom.window.dump.enabled`. `logStringMessage` does
+  NOT reach stdout. Without the pref, failures are invisible.
+
+## Why frame script, not JSWindowActor
+
+Content sandbox refuses to read `~/.vimfox`. Actor child ESM = content process
+load = `Failed to load resource://vimfox/VimFoxChild.sys.mjs`, once per doc.
+Parent reads the file, ships source as `data:` URI. Do not "fix" this back to
+an actor.
+
+`resource://` substitutions are per-process. Parent only. Content never
+resolves `resource://vimfox/`.
+
+## XUL keys
+
+- `reserved="true"` = parent handles before CONTENT. Does NOT beat other
+  CHROME keys.
+- Firefox built-ins win otherwise. Must disable colliding `<key>` elements.
+  Found by scanning, not hardcoded ids.
+- Suppression is MODE-SCOPED except `ALWAYS_ON`. `key_paste` collides with
+  `C-v`; killing it permanently breaks Ctrl+V in the urlbar. Only `key_close`
+  is permanently dead (C-w is ALWAYS_ON).
+- Dynamically added `<key>` needs keyset remove + re-append to register.
+- Matching is strict key+modifiers. `:` = shift+`;` (US) or shift+`.`
+  (Nordic). Uppercase letters need `modifiers="shift"`. Bind every candidate.
+
+## Where the keyset does NOT fire
+
+- **Non-remote about: pages** (`about:sessionrestore`, `about:tabcrashed`).
+  Document lives in parent process, key events target IT, keyset never
+  matches. Fallback: window capture listener, gated on
+  `e.target.ownerDocument !== document`. Remote pages target `<browser>`, so
+  no double-handling.
+- **Chrome widgets** (urlbar, findbar). Their own keydown handlers run before
+  window-level key handling. Escape/Tab there need the capture listener too.
+
+## Focus is a minefield
+
+- `Services.focus.focusedElement` returns CONTENT elements on non-remote
+  pages. Always check `ownerDocument === document`. Missing this made `run()`
+  suppress every binding on about: pages — silent, no error.
+- Insert mode = text field focused, content OR chrome. Urlbar counts, else
+  Escape falls to Firefox's multi-press chain.
+- Page-initiated focus is IGNORED (qutebrowser `insert_mode.auto_load=false`).
+  Content timestamps mousedown/keydown; focus without a gesture in 300ms does
+  not enter insert. `gi` must `markGesture()` itself — its keypress is eaten
+  in the parent, content sees nothing.
+- Already in insert: accept page refocus. Only ENTERING is gated.
+- `TabSelect` forces normal + defers focus steal-back. Firefox focuses the
+  urlbar AFTER TabSelect, so a synchronous focus() is overridden.
+- Listen to `focus` only, never `blur` — mid-blur focusedElement is null and
+  the mode flaps.
+
+## Escape schedule
+
+| state | owner |
+|---|---|
+| normal, no pending | page (modals work) |
+| normal, pending combo | us, cancel only, don't touch focus |
+| insert | us, exit + blur |
+| command | palette's own handler |
+| passthrough | page. Exit = Shift-Escape only |
+
+Escape is NOT in `keys` (the insert-disable list). Disabling the key that
+leaves insert strands you.
+
+## Normal mode swallows everything
+
+Content kills keydown/keypress/keyup. Mode is broadcast; new frames send
+`VimFox:Ready` to ask. Consequence: arrows/space/PageDown don't scroll.
+Allowlist in `child.js` if wanted.
+
+## Omnibar
+
+Ported from Vimium 2.4.2. Do not approximate it — read the source in the xpi.
+
+- Ranking = `ranking.js` `wordRelevancy` + `recencyScore`. Per-field, length
+  normalised, `urlScore = max(url,title)`. Recency lifts weak, never demotes.
+- Domain completer = SEPARATE completer, fixed `relevancy: 2.0`, single-word
+  queries only, returns ONE result. That constant is what puts raider.io over
+  a page titled "raid". It is NOT in ranking.js.
+- SQL is a CANDIDATE FILTER ONLY. 10x limit by frecency, then score. Ranking
+  a truncated list just reproduces frecency.
+- `moz_origins` is already a domain table (`prefix || host`).
+- `moz_places.last_visit_date` is MICROSECONDS.
+- Row layout = `top-half[source+title]` / `bottom-half[url]`. Source sits by
+  the TITLE. Read `Suggestion.generateHtml`, don't infer from CSS.
+- Selection starts at **-1** (`initialSelectionValue`) for open/ex. Enter with
+  -1 uses raw input. Wrap past end returns to -1, not 0.
+- NO debounce. NEVER clear the list. Render once, on results. Clearing first
+  is what caused the blink.
+- Stale replies dropped by token.
+
+`vomnibar.css` is verbatim Vimium except two scoped selectors (`ul`,
+`.no-insert-text`) — unscoped they style the whole browser UI. Positioning
+overrides live in `window.js`, not that file.
+
+## Self-test
+
+`VIMFOX_SELFTEST=1 ./run.sh about:blank` → `SELFTEST PASSED` on stdout.
+
+Checks wiring and pure logic. Cannot check key DELIVERY. Add a case for every
+new binding and every bug fixed. It has caught real bugs (deleteWord on
+selection, trailing-whitespace regex).
+
+## Dev loop
+
+```sh
+pgrep -f "[f]irefox --profile /home/thomal/.vimfox"   # [f] avoids self-match
+kill <pid>; rm -f vimfox.log
+VIMFOX_SELFTEST=1 nohup ./run.sh <url> > vimfox.log 2>&1 &
+sleep 15; grep -E "^vimfox" vimfox.log
+```
+
+`pkill -f` matches your own shell. Don't.
+
+Log keeps: startup checkpoints, `mode ->`, `suppressed <cmd>`. Add temporary
+logging freely; strip when done.
+
+## Fragile
+
+- `apt upgrade` wipes `system/` files. Re-run `system/install.sh`.
+- Mozilla intends to remove `sandbox_enabled`. Then: ESR or nothing.
+- Paths hardcoded to `/home/thomal`.
+- Urlbar internals are the least stable API in Firefox. FF152 already replaced
+  it (`moz-urlbar` custom element + `SmartbarInput.mjs`). Avoid depending on it.
