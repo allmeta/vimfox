@@ -239,9 +239,10 @@
     }
   }
 
-  function openFind() {
+  function openFind(linksOnly) {
     // Quick-find rather than the full bar, matching what `'` gave you before.
-    const open = (fb) => fb?.startFind(fb.FIND_TYPEAHEAD);
+    const open = (fb) =>
+      fb?.startFind(linksOnly ? fb.FIND_LINKS : fb.FIND_TYPEAHEAD);
     const cached = gBrowser.getCachedFindBar?.();
     if (cached) open(cached);
     else gBrowser.getFindBar?.()?.then(open, (ex) => log(`find failed: ${ex}`));
@@ -333,6 +334,7 @@
     findPrev:    () => findAgain(true),
     // `/` used to leak to the page — Google binds it to its own search box.
     find:        () => openFind(),
+    findLinks:   () => openFind(true),
     scrollLeft:  () => send("VimFox:ScrollX", { dx: -SCROLL_STEP_X }),
     scrollRight: () => send("VimFox:ScrollX", { dx: SCROLL_STEP_X }),
 
@@ -412,6 +414,7 @@
     N: "findPrev",
     "/": "find",
     "?": "find",
+    "'": "findLinks",
     "-": "zoomOut",
     "+": "zoomIn",
     "=": "zoomReset",
@@ -1761,6 +1764,12 @@
     check(
       "':' not bound as shift+;",
       !!keyset.element.querySelector('key[key=";"][modifiers="shift"]')
+    );
+
+    check(
+      "`'` not bound to link quick-find",
+      BINDINGS["'"] === "findLinks" &&
+        !!keyset.element.querySelector(`key[key="'"]:not([modifiers])`)
     );
 
     check(
