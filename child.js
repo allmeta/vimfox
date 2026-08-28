@@ -104,9 +104,9 @@ addMessageListener("VimFox:ClearSelection", () => {
 let swallowKeys = false;
 
 addMessageListener("VimFox:Mode", (msg) => {
-  // Caret mode is normal mode with a selection alive, so it swallows too —
-  // otherwise `y` would type into the page.
-  swallowKeys = msg.data.mode === "normal" || msg.data.mode === "caret";
+  // Which modes swallow is the parent's MODES table to decide, not ours —
+  // content keeping its own copy is how the two drift apart.
+  swallowKeys = !!msg.data.swallow;
 });
 
 // Keys normal mode does NOT swallow.

@@ -143,6 +143,30 @@ swallowing keys, or `y` would type into the page.
 - Ctrl+C is NOT bound. It goes through `passThrough()` in child.js to Firefox's
   own key_copy, so nothing of ours has to know about the selection.
 
+## The MODES table
+
+Every "does X happen in this mode" question is answered from one table in
+`window.js`, not from `mode === "..."` scattered across the file. Columns:
+
+| | |
+|---|---|
+| `keys` | our keyset is live — AND the layout fallback runs |
+| `escape` | we own Escape unconditionally (pending combo / count also claim it) |
+| `swallow` | content kills every key not explicitly passed |
+| `sticky` | focus changes and TabSelect must NOT move us out |
+| `exit` | Shift-Escape is armed as the way out |
+
+`keys` deliberately drives BOTH the keyset and the fallback: they must cover
+exactly the same modes, or a punctuation binding works in one mode and is dead
+in another. That was a real bug — see the layout fallback section.
+
+`swallow` is broadcast to content rather than recomputed there. Content keeping
+its own copy of which modes swallow is how the two drift apart.
+
+The self-test walks the table: every mode needs a chip colour, and any mode
+with `keys` must be covered by the fallback. Adding a mode and wiring only half
+of it fails the test.
+
 ## Escape schedule
 
 | state | owner |

@@ -15,7 +15,8 @@ tab — the same path `Ctrl+W` takes.
 | file | role |
 |---|---|
 | `boot.js` | AutoConfig entry point: `resource://vimfox/`, frame script, per-window hookup |
-| `window.js` | parent process — modes, keyset, command palette, commands, ranking, self-test |
+| `window.js` | parent process — MODES state machine, keyset, palette, commands, ranking |
+| `src/selftest.js` | every assertion; loaded only under `VIMFOX_SELFTEST=1` |
 | `child.js` | frame script — focus reporting, key swallowing, `gi`, horizontal scroll |
 | `vomnibar.css` | Vimium 2.4.2 `vomnibar_page.css`, verbatim bar two scoping fixes (see header) |
 | `run.sh` | launcher (`--no-remote`, so it runs alongside your normal Firefox) |

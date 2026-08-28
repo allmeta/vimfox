@@ -6,3 +6,7 @@ vimfox.log
 profile/*
 !profile/user.js
 !profile/.vimfox
+
+# Ad-hoc screenshots.
+sc.png
+*.png
