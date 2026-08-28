@@ -179,6 +179,11 @@ group, so it fires after the capture listener but before the timeout).
 Escape and Shift-Escape are excluded on purpose: their XUL keys are disabled
 most of the time BY DESIGN, and a fallback would undo exactly that.
 
+`FALLBACK_MODES` is the mode gate, and every mode that runs bindings has to be
+in it. Gating on `"normal"` alone left `$`, `{` and `}` dead in CARET mode —
+AltGr keys the keyset never matches — while `g$` worked, because that is normal
+mode. A binding that works in one mode and not another is this gate.
+
 ## Omnibar
 
 Ported from Vimium 2.4.2. Do not approximate it — read the source in the xpi.

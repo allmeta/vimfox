@@ -770,6 +770,12 @@
     return !!BINDINGS[name] || !!SEQUENCES[name];
   }
 
+  // Modes the layout fallback runs in. Caret mode belongs here as much as
+  // normal does: `$` is AltGr+4 on a Nordic layout, the keyset never matches
+  // it, and gating the fallback on normal alone left every such key dead in
+  // caret mode while `g$` — normal mode — worked fine.
+  const FALLBACK_MODES = new Set(["normal", "caret"]);
+
   // Bumped on every key the fallback is watching; dispatch() stamps it when the
   // keyset wins, which is how the two paths avoid running the same key twice.
   let keyToken = 0;
@@ -2053,7 +2059,7 @@
       // a hung content process, and that is the whole point of the project.
       // This only runs when the keyset produced nothing — deferred, because the
       // XUL key handler runs in the system group, after this capture listener.
-      if (mode === "normal" && !chromeInputFocused()) {
+      if (FALLBACK_MODES.has(mode) && !chromeInputFocused()) {
         const name = keyNameFor(e);
         if (name && isBound(name)) {
           const token = ++keyToken;
@@ -2351,6 +2357,25 @@
     setMode("caret");
     check("caret mode swallowed an unmapped key", caretKey("x") === false);
     setMode("normal");
+
+    // Caret mode must be in the layout fallback, or every AltGr key dies there
+    // while working fine in normal mode — which is exactly how `$` behaved.
+    check("caret mode is not covered by the layout fallback", FALLBACK_MODES.has("caret"));
+    setMode("caret");
+    check("`$` not bound in caret mode", isBound("$") && isBound("{") && isBound("}"));
+    setMode("normal");
+
+    // Every caret command must exist and be dispatchable, or a motion is a
+    // silent no-op — the same failure shape as the moveTabTo drift.
+    for (const cmd of Object.values(CARET_MOTIONS).flat()) {
+      let controller = null;
+      try {
+        controller = document.commandDispatcher.getControllerForCommand(cmd);
+      } catch (ex) {
+        /* reported by the check below */
+      }
+      check(`no controller for ${cmd}`, !!controller);
+    }
     toast.element.setAttribute("hidden", "true");
     // The yank above raised a toast; later checks assert a clean slate.
     toast.element.setAttribute("hidden", "true");
