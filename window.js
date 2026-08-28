@@ -271,12 +271,13 @@
 
   function moveTab(dir) {
     const tab = gBrowser.selectedTab;
-    const target = tab._tPos + dir;
-    if (target >= 0 && target < gBrowser.tabs.length) {
-      // FF152 takes an options object. A bare index destructures to undefined
-      // and the call becomes a silent no-op — no error, the tab just sits there.
-      gBrowser.moveTabTo(tab, { tabIndex: target });
-    }
+    const n = gBrowser.tabs.length;
+    // Wraps, like J/K do when cycling tabs — pushing the last tab right sends
+    // it to the front rather than stopping dead against the edge.
+    const target = (tab._tPos + dir + n) % n;
+    // FF152 takes an options object. A bare index destructures to undefined and
+    // the call becomes a silent no-op — no error, the tab just sits there.
+    gBrowser.moveTabTo(tab, { tabIndex: target });
   }
 
   function cycleTab(dir) {
@@ -751,6 +752,25 @@
   // Every key that can *begin* or *continue* a normal-mode binding must be
   // registered, otherwise the second key of a sequence never reaches us.
 
+  // Characters needing Shift that are not uppercase letters, so the
+  // `ch !== ch.toLowerCase()` test misses them. XUL matches key + modifiers
+  // strictly, so `<key key=":">` never fires — it must be Shift plus the
+  // unshifted character, and which key that is depends on layout: US/UK put `:`
+  // on `;`, Nordic layouts put it on `.`.
+  //
+  // A candidate here is a GUESS, and a wrong guess is worse than a missing one:
+  // the layout fallback covers what XUL misses, but nothing undoes a key that
+  // fires the WRONG command. `?` must not list `+` and `$` must not list `4` —
+  // on a Nordic layout both are UNSHIFTED, and Gecko's shortcut-key candidates
+  // let a shift-requiring <key> match them anyway, so `+` ran find instead of
+  // zooming and Shift+4 would have shadowed the count digit.
+  const SHIFTED = {
+    ":": [";", "."],
+    "?": ["/"],
+    '"': ["'"],
+    "+": ["="],
+  };
+
   const keyset = (() => {
     const el = document.createXULElement("keyset");
     el.id = "vimfox-keyset";
@@ -772,22 +792,6 @@
     // ALWAYS_ON chords: ours fires in every mode, so whatever they collide with
     // must stay dead in every mode.
     const alwaysKeys = [];
-
-    // Characters needing Shift that are not uppercase letters, so the
-    // `ch !== ch.toLowerCase()` test misses them. XUL matches key + modifiers
-    // strictly, so `<key key=":">` never fires — it must be Shift plus the
-    // unshifted character, and which key that is depends on layout:
-    // US/UK put `:` on `;`, Nordic layouts put it on `.`. Bind every
-    // candidate plus the bare character; extra bindings are harmless.
-    // `$` and `+` are AltGr or a different shifted key on Nordic layouts, so
-    // bind the plausible bases as well as the bare character.
-    const SHIFTED = {
-      ":": [";", "."],
-      "?": ["/", "+"],
-      '"': ["'", "2"],
-      $: ["4"],
-      "+": ["="],
-    };
 
     const addKey = (attrs, cmdChar) => {
       const key = document.createXULElement("key");
@@ -2077,9 +2081,41 @@
         `tabMoveRight did not move the tab (${before} -> ${extra._tPos})`,
         extra._tPos === before
       );
+      // Wrap: from the last position, right goes back to the front.
+      gBrowser.moveTabTo(extra, { tabIndex: gBrowser.tabs.length - 1 });
+      cmds.tabMoveRight();
+      check(
+        `tabMoveRight did not wrap (landed at ${extra._tPos})`,
+        extra._tPos < gBrowser.tabs.length - 1
+      );
       gBrowser.selectedTab = restore;
       gBrowser.removeTab(extra);
     }
+
+    // Middle-click closes a tab. vimfox blocks no mouse events anywhere — but
+    // the pinned-tab patch in autoconfig.cfg WRAPS Firefox's on_click, and
+    // anything thrown in that wrapper takes the built-in handler with it. That
+    // is how middle-click-to-close died on every tab.
+    {
+      const extra = gBrowser.addTab("about:blank", {
+        triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+      });
+      extra.dispatchEvent(
+        new win.MouseEvent("click", { bubbles: true, button: 1, view: win })
+      );
+      // removeTab animates, so the tab is marked closing before it is gone.
+      check(
+        `middle click did not close the tab (autoconfig pinned-tab patch ` +
+          `applied: ${!!gBrowser.tabContainer._pinnedMclickPatched})`,
+        extra.closing || !extra.isConnected
+      );
+      if (extra.isConnected && !extra.closing) gBrowser.removeTab(extra);
+    }
+
+    // A shift-requiring candidate for a character that is UNSHIFTED on some
+    // layouts fires the wrong command there; `+` ran find instead of zooming.
+    check("`?` must not claim the `+` key", !(SHIFTED["?"] ?? []).includes("+"));
+    check("`$` must not claim the `4` key", !(SHIFTED.$ ?? []).includes("4"));
 
     // The `:` menu and the executor must stay one table: a listed command that
     // does not run is worse than no menu at all.

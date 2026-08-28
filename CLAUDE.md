@@ -59,7 +59,14 @@ resolves `resource://vimfox/`.
   first real mode change.
 - Dynamically added `<key>` needs keyset remove + re-append to register.
 - Matching is strict key+modifiers. `:` = shift+`;` (US) or shift+`.`
-  (Nordic). Uppercase letters need `modifiers="shift"`. Bind every candidate.
+  (Nordic). Uppercase letters need `modifiers="shift"`.
+- A `SHIFTED` candidate is a GUESS, and a wrong guess is WORSE than a missing
+  one: the layout fallback covers what XUL misses, but nothing undoes a key
+  that fires the wrong command. `?` listing `+` made `+` open find instead of
+  zooming, because `+` is unshifted on Nordic layouts and Gecko's
+  shortcut-key candidates let a shift-requiring `<key>` match it anyway. Same
+  reason `$` must not list `4` — it would shadow the count digit. Add a
+  candidate only for a layout you have actually tested.
 
 ## Where the keyset does NOT fire
 
@@ -224,6 +231,23 @@ sleep 15; grep -E "^vimfox" vimfox.log
 
 Log keeps: startup checkpoints, `mode ->`, `suppressed <cmd>`. Add temporary
 logging freely; strip when done.
+
+## Mouse
+
+vimfox blocks NO mouse events, in any mode. `child.js` swallows keys only;
+`mousedown` is listened to for the gesture timestamp and never cancelled. If a
+click stops working, it is not the mode machine.
+
+The one thing in this repo that touches clicks is the pinned-tab middle-click
+patch in `autoconfig.cfg`, which WRAPS Firefox's own `tabs` `on_click`.
+Anything thrown in that wrapper takes the built-in handler down with it and
+kills middle-click-to-close on every tab, so it uses no ambient globals
+(`Event` is not defined in the AutoConfig scope — read `BUBBLING_PHASE` off the
+event instance) and is wrapped in try/catch.
+
+`handleEvent` looks up `this["on_" + type]` at dispatch time, so reassigning
+`on_click` does take effect. But `_pinnedMclickPatched` reads false in a fresh
+window, so the patch is not currently applying at all — unresolved.
 
 ## tabbrowser API drift
 
