@@ -157,14 +157,19 @@
 
   // Single writer for the pending-prefix state, so the which-key panel and
   // Escape routing can never drift out of sync with it.
-  function setPending(prefix) {
+  // `quiet` suppresses which-key. Caret mode reuses `g` as a prefix but only
+  // implements gg, so the normal-mode g menu would advertise a dozen commands
+  // that do nothing there.
+  function setPending(prefix, { quiet = false } = {}) {
     pending = prefix;
     win.clearTimeout(pendingTimer);
     win.clearTimeout(whichKeyTimer);
     whichKey.hide();
     if (prefix) {
       pendingTimer = win.setTimeout(() => setPending(null), COMBO_TIMEOUT);
-      whichKeyTimer = win.setTimeout(() => whichKey.show(prefix), WHICHKEY_DELAY);
+      if (!quiet) {
+        whichKeyTimer = win.setTimeout(() => whichKey.show(prefix), WHICHKEY_DELAY);
+      }
     }
     updateEscape();
   }
@@ -356,7 +361,10 @@
   // Bumped on every key the fallback is watching; dispatch() stamps it when the
   // keyset wins, which is how the two paths avoid running the same key twice.
   let keyToken = 0;
-  let keyHandledToken = 0;
+  // A SET, not one slot: two keydowns can both be processed before the first
+  // setTimeout(0) runs (autorepeat, a stalled main thread), and a single slot
+  // would then make key 1's timeout think it was unhandled and fire it twice.
+  const keyHandled = new Set();
 
   // A caret motion, honouring any count. `caretSelecting` picks which half of
   // the pair runs — that is the whole of qutebrowser's `v` toggle.
@@ -379,7 +387,7 @@
       return true;
     }
     if (keyName === "g") {
-      setPending("g");
+      setPending("g", { quiet: true });
       return true;
     }
 
@@ -426,7 +434,7 @@
   }
 
   function dispatch(keyName) {
-    keyHandledToken = keyToken;
+    keyHandled.add(keyToken);
 
     // The one key passthrough mode does not hand to the page.
     if (keyName === "Shift-Escape") {
@@ -516,6 +524,9 @@
 
   const ui = part("ui").vimfoxUI({
     win, document, HTML, log, TOAST_MS, initialMode: mode,
+    // Lazy for the same reason as the tables below: which-key is created inside
+    // this very module, so the toast cannot capture it at construction.
+    hideWhichKey: () => whichKey.hide(),
     // Lazy: which-key reads these at show() time, and they come from the
     // commands module, which in turn needs this module's toast.
     get SEQUENCES() {
@@ -660,6 +671,11 @@
       whichKey.destroy();
       toast.destroy();
       toolboxObserver.disconnect();
+      gBrowser.tabContainer.removeEventListener("TabSelect", onTabSelect);
+      win.removeEventListener("focus", refreshMode, true);
+      win.removeEventListener("keydown", onWindowKeydown, true);
+      // Cancels the combo and which-key timers as a side effect.
+      setPending(null);
       indicator.remove();
       chromeStyle.remove();
       delete document.documentElement.dataset.vimfoxMode;
@@ -687,7 +703,7 @@
   // Switching tabs always lands in normal mode. contentEditable tracks the
   // window, not the tab, so without this you inherit the previous tab's state
   // — and a new tab whose search box autofocuses would strand you in insert.
-  gBrowser.tabContainer.addEventListener("TabSelect", (e) => {
+  const onTabSelect = (e) => {
     // Recorded before the early return, or `^` would forget every switch made
     // while passthrough was on.
     if (e.detail?.previousTab) lastTab = e.detail.previousTab;
@@ -708,7 +724,8 @@
       gBrowser.selectedBrowser?.focus();
       refreshMode();
     }, 0);
-  });
+  };
+  gBrowser.tabContainer.addEventListener("TabSelect", onTabSelect);
 
   win.addEventListener("focus", refreshMode, true);
 
@@ -718,9 +735,7 @@
   // ran Firefox's multi-step chain (revert, close panel, ...) instead of ours.
   // Capture on the window is the earliest point in dispatch, so we get it
   // first and stop it dead.
-  win.addEventListener(
-    "keydown",
-    (e) => {
+  const onWindowKeydown = (e) => {
       // Parent-process pages (about:sessionrestore, about:tabcrashed) put
       // focus in a content document living in THIS process, so key events
       // target that document and the chrome keyset never matches them —
@@ -752,7 +767,8 @@
         if (name && isBound(name)) {
           const token = ++keyToken;
           win.setTimeout(() => {
-            if (keyHandledToken === token) return; // the keyset got it
+            const handled = keyHandled.delete(token);
+            if (handled) return; // the keyset got it
             log(`keyset missed ${name}; dispatching from the layout fallback`);
             dispatch(name);
           }, 0);
@@ -779,9 +795,8 @@
         e.stopImmediatePropagation();
         findbar.onFindAgainCommand(e.shiftKey);
       }
-    },
-    true
-  );
+  };
+  win.addEventListener("keydown", onWindowKeydown, true);
 
   win.addEventListener("unload", () => win.VimFox?.destroy(), { once: true });
 

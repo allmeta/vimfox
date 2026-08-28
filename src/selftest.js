@@ -524,20 +524,21 @@ this.vimfoxSelfTest = (vf) => {
     "built-ins not re-suppressed in normal mode",
     keyset.builtinsNormal.every((k) => k.hasAttribute("disabled"))
   );
-  // ALWAYS_ON: C-w must stay live in insert mode, which is the whole point of
-  // it — deleting a word matters most while typing. The old version of this
-  // check ran in normal mode and asserted the opposite of its own name.
-  setMode("insert");
-  check(
-    "C-w not live in insert mode",
-    !keyset.element
-      .querySelector('key[key="w"][modifiers="accel"]')
-      ?.hasAttribute("disabled")
-  );
-  check(
-    "key_close revived in insert mode (C-w is ALWAYS_ON, its twin stays dead)",
-    document.getElementById("key_close")?.hasAttribute("disabled")
-  );
+  // C-w is ALWAYS_ON and must NEVER close a tab. That is two guarantees, in
+  // every mode: ours stays live, and Firefox's key_close stays dead. The old
+  // version of this check ran only in normal mode and asserted the opposite of
+  // its own name.
+  const ourCw = keyset.element.querySelector('key[key="w"][modifiers="accel"]');
+  const keyClose = document.getElementById("key_close");
+  check("key_close missing (the C-w guarantee is vacuous)", !!keyClose);
+  for (const name of Object.keys(MODES)) {
+    setMode(name);
+    check(`C-w not live in ${name} mode`, !ourCw?.hasAttribute("disabled"));
+    check(
+      `key_close revived in ${name} mode — C-w could close a tab`,
+      keyClose?.hasAttribute("disabled")
+    );
+  }
   setMode("normal");
 
   // Word-deletion logic, independent of focus resolution.

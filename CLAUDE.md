@@ -52,6 +52,10 @@ resolves `resource://vimfox/`.
   CHROME keys.
 - Firefox built-ins win otherwise. Must disable colliding `<key>` elements.
   Found by scanning, not hardcoded ids.
+- `C-w` must NEVER close a tab. It is `ALWAYS_ON` (delete word matters most
+  while typing), so its twin `key_close` is permanently dead. The self-test
+  asserts BOTH halves in every mode — ours live, theirs disabled — because the
+  pair is only correct together.
 - Suppression is MODE-SCOPED except `ALWAYS_ON`. `key_paste` collides with
   `C-v`; killing it permanently breaks Ctrl+V in the urlbar. Only `key_close`
   is permanently dead (C-w is ALWAYS_ON).
@@ -114,7 +118,12 @@ resolves `resource://vimfox/`.
 - `TabSelect` forces normal + defers focus steal-back. Firefox focuses the
   urlbar AFTER TabSelect, so a synchronous focus() is overridden.
 - Listen to `focus` only, never `blur` — mid-blur focusedElement is null and
-  the mode flaps.
+  the mode flaps. Content has the same hazard from the other side: `focusout`
+  fires with activeElement already back on `<body>`, so reporting it directly
+  said "not editable" and dropped insert mode, and the `focusin` that followed
+  was gated out as page-initiated — leaving you in normal mode with a field
+  focused. `child.js` coalesces focusin/focusout into ONE deferred report of
+  the settled state.
 
 ## Caret mode
 

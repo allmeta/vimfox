@@ -49,8 +49,25 @@ function report() {
   });
 }
 
-addEventListener("focusin", report, true);
-addEventListener("focusout", report, true);
+// Coalesced to the end of the turn. focusout fires with activeElement already
+// back on <body>, so reporting it directly said "not editable" and the parent
+// dropped to normal mode; the focusin that followed was then gated out as
+// page-initiated, stranding you in normal with a field focused and every key
+// swallowed. Deferring lets a focusout+focusin pair settle into ONE report of
+// the final state — which is the same reason the parent listens to focus and
+// never to blur.
+let reportPending = false;
+function scheduleReport() {
+  if (reportPending) return;
+  reportPending = true;
+  Services.tm.dispatchToMainThread(() => {
+    reportPending = false;
+    report();
+  });
+}
+
+addEventListener("focusin", scheduleReport, true);
+addEventListener("focusout", scheduleReport, true);
 
 // Selecting text puts the window in caret mode, where `y` yanks. Only the
 // has/has-not TRANSITION is reported: selectionchange fires on every mouse move

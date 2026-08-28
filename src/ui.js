@@ -129,6 +129,10 @@ this.vimfoxUI = (vf) => {
     return {
       element: box,
       show(text) {
+        // Same fixed slot as which-key. A yank clears the pending prefix so the
+        // two cannot collide there, but caret mode's `v` toasts while a prefix
+        // may still be pending — so hide it explicitly rather than overlapping.
+        vf.hideWhichKey();
         box.textContent = text;
         box.removeAttribute("hidden");
         win.clearTimeout(timer);
