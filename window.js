@@ -485,8 +485,7 @@
   };
 
   // Caret keys that are not motions. Needed by isBound(), so the layout
-  // fallback fires for them too: `{` and `}` have no SHIFTED entry, so the
-  // keyset only has the bare `key="{"` element, which a Shift press misses.
+  // fallback still covers them if the keyset ever misses one.
   const CARET_EXTRA = new Set([
     "v", "o", "y", "c", "g", "/", "?", "n", "N", "H", "J", "K", "L",
   ]);
@@ -770,10 +769,9 @@
     return !!BINDINGS[name] || !!SEQUENCES[name];
   }
 
-  // Modes the layout fallback runs in. Caret mode belongs here as much as
-  // normal does. Any key the keyset misses — `{` and `}` have no SHIFTED
-  // candidate at all — was dead in caret mode while working in normal, because
-  // this gate said "normal" and nothing else.
+  // Modes the layout fallback runs in. Every mode that runs bindings belongs
+  // here: gating on "normal" alone left keys the keyset missed dead in caret
+  // mode while they worked fine in normal.
   const FALLBACK_MODES = new Set(["normal", "caret"]);
 
   // Bumped on every key the fallback is watching; dispatch() stamps it when the
@@ -928,29 +926,24 @@
   // Every key that can *begin* or *continue* a normal-mode binding must be
   // registered, otherwise the second key of a sequence never reaches us.
 
-  // Characters needing Shift that are not uppercase letters, so the
-  // `ch !== ch.toLowerCase()` test misses them. XUL matches key + modifiers
-  // strictly, so `<key key=":">` never fires — it must be Shift plus the
-  // unshifted character on the same physical key.
+  // There is NO layout table here, deliberately. Gecko already does the
+  // translation: WidgetKeyboardEvent::GetShortcutKeyCandidates builds its
+  // candidate list from mAlternativeCharCodes, which the widget layer fills in
+  // from the OS keyboard layout at event time. The first and highest-priority
+  // candidate is always PseudoCharCode() — the character the press actually
+  // produced — matched against the modifiers exactly.
   //
-  // Gecko matches the `key` attribute against a LIST of candidates for the
-  // press — the character produced AND the character that physical key gives
-  // unshifted — with an exact modifier match. So one keystroke can match two
-  // different <key> elements and document order picks the winner.
+  // The consequence that killed the old table: when Shift is held, candidates
+  // are built ONLY from shifted char codes. The unshifted character of the same
+  // physical key is never a candidate. So `<key key="=" modifiers="shift">`
+  // could never match `+`, and every entry of the old SHIFTED map was either
+  // dead or, in the one case that did match, firing the wrong command.
   //
-  // That makes a wrong candidate far worse than a missing one: the layout
-  // fallback covers a miss, but nothing undoes a key that fires the WRONG
-  // command. `?` listed `+`, so Shift+= (US `+`) matched BOTH `key="=" shift`
-  // (zoom in, correct) and `key="+" shift` (find, wrong) — and find won.
-  //
-  // Everything below is the US layout, the one this is actually tested on.
-  const SHIFTED = {
-    ":": [";"],
-    "?": ["/"],
-    '"': ["'"],
-    $: ["4"],
-    "+": ["="],
-  };
+  // So: bind the CHARACTER, both with and without shift, and let Gecko decide
+  // which one the layout produces. Both dispatch the same command, so the two
+  // elements cannot disagree, and it is correct on every layout by
+  // construction rather than by a guess we would have to maintain.
+  const isLetter = (ch) => ch.toLowerCase() !== ch.toUpperCase();
 
   const keyset = (() => {
     const el = document.createXULElement("keyset");
@@ -987,13 +980,17 @@
     };
 
     for (const ch of singles) {
-      for (const base of SHIFTED[ch] ?? []) {
-        addKey({ key: base, modifiers: "shift" }, ch);
+      if (isLetter(ch)) {
+        // Letters are the one case Gecko will NOT ignore shift for
+        // (IsCaseChangeableChar), so the case decides the modifier, and
+        // Ctrl+Shift+C must never reach a Ctrl+C handler.
+        addKey(ch === ch.toUpperCase() ? { key: ch, modifiers: "shift" } : { key: ch }, ch);
+        continue;
       }
-      addKey(
-        ch !== ch.toLowerCase() ? { key: ch, modifiers: "shift" } : { key: ch },
-        ch
-      );
+      // Everything else: bind the character both ways. Whichever the layout
+      // needs is the one that matches, and both run the same command.
+      addKey({ key: ch }, ch);
+      if (!/[0-9]/.test(ch)) addKey({ key: ch, modifiers: "shift" }, ch);
     }
 
     for (const combo of Object.keys(BINDINGS).filter(isCombo)) {
@@ -2054,11 +2051,10 @@
         return;
       }
 
-      // Layout fallback. XUL matches key+modifiers strictly against whatever
-      // character the LAYOUT produces, and which physical key carries `:` or
-      // `$` differs per layout — SHIFTED below is guesswork, and on a Norwegian
-      // keyboard neither guess for `$` fires. Rather than keep adding
-      // candidates, notice when the keyset did not run and dispatch from here.
+      // Layout fallback. The keyset should now match on any layout — we bind
+      // the character, not a guessed physical key — but `e.key` is the ground
+      // truth and costs nothing to check, so notice when the keyset did not
+      // run and dispatch from here.
       //
       // Deliberately NOT the primary path: the keyset is `reserved`, so it beats
       // a hung content process, and that is the whole point of the project.
@@ -2385,24 +2381,31 @@
     // The yank above raised a toast; later checks assert a clean slate.
     toast.element.setAttribute("hidden", "true");
 
-    // A candidate must be the UNSHIFTED character on the same physical key.
-    // Claiming a character that is itself shift-produced is what breaks: `?`
-    // listed `+`, so Shift+= matched both `key="=" shift` (zoom, correct) and
-    // `key="+" shift` (find, wrong), and document order handed it to find.
-    // `?` claiming `/` is fine by contrast — exact modifier matching keeps
-    // `key="/"` and `key="/" modifiers="shift"` apart.
-    for (const [ch, bases] of Object.entries(SHIFTED)) {
-      for (const base of bases) {
-        check(
-          `SHIFTED[${ch}] claims "${base}", which is itself a shifted character`,
-          !SHIFTED[base]
-        );
-      }
+    // No <key> may name a character other than the one it dispatches. Naming a
+    // physical key instead is what made Shift+= run find: `key="+" shift` was
+    // registered for `?`, and `+` is candidate 0 for that press.
+    for (const k of keyset.element.querySelectorAll("key[key]")) {
+      const attr = k.getAttribute("key");
+      check(
+        `<key key="${attr}"> dispatches something else`,
+        !k.hasAttribute("keycode") ? attr.length === 1 : true
+      );
     }
-    // `$` is Shift+4 on US, so the keyset can serve it and g$ does not have to
-    // fall back. Reserved keys beat a hung content process; the fallback does
-    // not.
-    check("`$` has no keyset candidate", (SHIFTED.$ ?? []).includes("4"));
+    // Every shifted-punctuation binding needs BOTH forms, because which one
+    // matches is the layout's choice, not ours.
+    for (const ch of [":", "?", "+", "$", "^"]) {
+      check(
+        `"${ch}" is missing a keyset element`,
+        !!keyset.element.querySelector(`key[key="${ch}"]:not([modifiers])`) &&
+          !!keyset.element.querySelector(`key[key="${ch}"][modifiers="shift"]`)
+      );
+    }
+    // Letters must not get the shift-agnostic treatment, or Ctrl+Shift+C could
+    // reach a Ctrl+C handler.
+    check(
+      "a lowercase letter was registered with shift",
+      !keyset.element.querySelector('key[key="j"][modifiers="shift"]')
+    );
 
     // The `:` menu and the executor must stay one table: a listed command that
     // does not run is worse than no menu at all.
@@ -2468,9 +2471,12 @@
     contentEditable = false;
     refreshMode();
 
+    // NB: NOT `key=";" modifiers="shift"`. When shift is held, Gecko builds
+    // candidates only from shifted char codes, so the unshifted `;` of that
+    // physical key is never one — that element could never have matched.
     check(
-      "':' not bound as shift+;",
-      !!keyset.element.querySelector('key[key=";"][modifiers="shift"]')
+      "':' not bound as the character itself",
+      !!keyset.element.querySelector('key[key=":"]')
     );
 
     check(

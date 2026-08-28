@@ -58,20 +58,25 @@ resolves `resource://vimfox/`.
   calls the setters, and anything left at its default stays wrong until the
   first real mode change.
 - Dynamically added `<key>` needs keyset remove + re-append to register.
-- **This machine is a US layout.** Every `SHIFTED` entry is US.
-- Modifiers match EXACTLY, but the `key` attribute is matched against a LIST of
-  shortcut-key candidates for the press: the character produced, and the
-  character that physical key gives unshifted. So ONE keystroke can match TWO
-  different `<key>` elements, and document order decides the winner. This is
-  the whole reason the table is fragile — there is no way to say "the
-  character `$`, however it is typed".
-- A `SHIFTED` candidate must be the UNSHIFTED character on the same physical
-  key. `?: ["/"]` is right. `?: ["+"]` was wrong and made Shift+= (US `+`)
-  match both `key="=" shift` → zoom and `key="+" shift` → find; find won.
-  A wrong candidate is worse than a missing one — the layout fallback covers a
-  miss, nothing undoes a key firing the wrong command. The self-test enforces
-  the rule: no candidate may itself be a shifted character.
-- Uppercase letters need `modifiers="shift"`.
+- **There is no layout table, and there must not be one.** Gecko already
+  translates: `WidgetKeyboardEvent::GetShortcutKeyCandidates`
+  (`widget/WidgetEventImpl.cpp`) builds candidates from
+  `mAlternativeCharCodes`, which the widget layer fills from the OS layout at
+  event time. Candidate 0 is always `PseudoCharCode()` — the character the
+  press actually produced.
+- **When Shift is held, candidates come ONLY from shifted char codes.** The
+  unshifted character of the same physical key is never a candidate. So
+  `<key key="=" modifiers="shift">` can NEVER match `+`. The old `SHIFTED`
+  table was entirely dead code except for its one live mis-fire: `?` listed
+  `+`, and `key="+" modifiers="shift"` matched candidate 0 of Shift+`=`, so
+  `+` ran find instead of zooming.
+- **So bind the CHARACTER, both with and without shift**, and let the layout
+  decide which matches. Both elements dispatch the same command, so they cannot
+  disagree. Correct on every layout by construction; nothing to maintain.
+- Letters are the exception — `IsCaseChangeableChar` means Gecko will not
+  ignore shift for them, so case picks the modifier. That is deliberate:
+  Ctrl+Shift+C must never reach a Ctrl+C handler.
+- Digits get the bare form only, so Shift+digit cannot start a count.
 
 ## Where the keyset does NOT fire
 
