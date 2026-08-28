@@ -95,11 +95,32 @@ resolves `resource://vimfox/`.
 - Listen to `focus` only, never `blur` — mid-blur focusedElement is null and
   the mode flaps.
 
+## Caret mode
+
+A page selection puts the window in `caret`. It is NORMAL MODE WITH A SELECTION
+ALIVE, not a separate keymap: the keyset stays enabled and content keeps
+swallowing keys, or `y` would type into the page.
+
+- Content reports only the has/has-not TRANSITION. `selectionchange` fires on
+  every mouse move during a drag, and the parent needs one boolean. The
+  selected text NEVER crosses the process boundary — `goDoCommand("cmd_copy")`
+  routes to where the selection lives.
+- Listen on `selectionchange` AND `mouseup`/`keyup`. selectionchange does not
+  fire for every way a selection can end; the transition guard makes the extra
+  calls free.
+- `refreshMode()` must return caret while a selection is alive. Focus events
+  fire constantly while dragging one out, and each would otherwise drop the
+  mode back to normal before `y` could be pressed.
+- `y` shadows the `y*` sequence prefix for as long as the selection lasts.
+- Ctrl+C is NOT bound. It goes through `passThrough()` in child.js to Firefox's
+  own key_copy, so nothing of ours has to know about the selection.
+
 ## Escape schedule
 
 | state | owner |
 |---|---|
 | normal, no pending | page (modals work) |
+| caret | us, drop the selection and leave |
 | normal, pending combo | us, cancel only, don't touch focus |
 | insert | us, exit + blur |
 | command | palette's own handler |

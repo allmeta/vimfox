@@ -382,6 +382,21 @@
       else win.PlacesCommandHook?.bookmarkPage?.();
     },
 
+    // The selection lives in the content process, so cmd_copy is routed there
+    // rather than shipping the text across for the parent to copy.
+    copySelection: () => {
+      if (!contentSelected) {
+        toast.show("nothing to copy");
+        return;
+      }
+      try {
+        win.goDoCommand("cmd_copy");
+        toast.show("copied selection");
+      } catch (ex) {
+        log(`copySelection failed: ${ex}`);
+      }
+    },
+
     caretMode: () => {
       const key = "accessibility.browsewithcaret";
       Services.prefs.setBoolPref(key, !Services.prefs.getBoolPref(key, false));
@@ -527,6 +542,7 @@
   let pending = null; // active sequence prefix, e.g. "g"
   let count = ""; // digits typed before a command, vim-style: 3j
   let lastTab = null; // the tab `^` goes back to
+  let contentSelected = false; // page has a non-empty selection
   let pendingTimer = 0;
   let whichKeyTimer = 0;
 
@@ -534,7 +550,9 @@
   // mode, or aborting a half-typed key combo. With neither pending it stays
   // disabled, so the page receives Escape as normal.
   function updateEscape() {
-    keyset.setEscapeEnabled(mode === "insert" || !!pending || !!count);
+    keyset.setEscapeEnabled(
+      mode === "insert" || mode === "caret" || !!pending || !!count
+    );
     // Only passthrough mode needs a way out that the page cannot swallow.
     keyset.setPassthroughExitEnabled(mode === "passthrough");
   }
@@ -558,7 +576,9 @@
     mode = next;
     count = "";
     setPending(null);
-    keyset.setEnabled(mode === "normal");
+    // Caret mode keeps the normal-mode keyset: it is normal mode with a
+    // selection alive, not a separate keymap.
+    keyset.setEnabled(mode === "normal" || mode === "caret");
     updateEscape();
     broadcastMode();
     log(`mode -> ${mode}`);
@@ -603,7 +623,20 @@
   function refreshMode() {
     // The palette owns the keyboard; passthrough is only left deliberately.
     if (mode === "command" || mode === "passthrough") return;
-    setMode(chromeInputFocused() || contentEditable ? "insert" : "normal");
+    const editing = chromeInputFocused() || contentEditable;
+    // A live selection holds caret mode. Focus events fire constantly while
+    // dragging one out, and without this every one of them would drop us back
+    // to normal before `y` could ever be pressed.
+    if (!editing && contentSelected) return setMode("caret");
+    setMode(editing ? "insert" : "normal");
+  }
+
+  // Content reports only the has/has-not transition; the text itself never
+  // crosses the process boundary — cmd_copy runs where the selection lives.
+  function onContentSelection(has) {
+    contentSelected = has;
+    if (has && mode === "normal") setMode("caret");
+    else if (!has && mode === "caret") setMode("normal");
   }
 
   // Only elements of the chrome document count. Pages like about:sessionrestore
@@ -693,6 +726,14 @@
       return;
     }
 
+    // Caret mode: `y` yanks the selection, shadowing the y* sequence prefix for
+    // as long as a selection is alive. Ctrl+C is not handled here — it reaches
+    // Firefox's own key_copy through the child allowlist, natively.
+    if (mode === "caret" && keyName === "y") {
+      run("copySelection");
+      return;
+    }
+
     if (keyName === "Escape") {
       // A half-typed count is the first thing Escape throws away.
       if (count) {
@@ -703,6 +744,13 @@
       // Cancelling a combo is all Escape does here — don't also steal focus.
       if (pending) {
         setPending(null);
+        return;
+      }
+      // Caret mode ends by dropping the selection; content's own
+      // selectionchange then walks us back to normal.
+      if (mode === "caret") {
+        send("VimFox:ClearSelection");
+        setMode("normal");
         return;
       }
       // Blur the content field too, else focus stays in the input and the next
@@ -1570,11 +1618,13 @@
     :root[data-vimfox-mode="insert"]      { --vimfox-accent: #2f855a; }
     :root[data-vimfox-mode="command"]     { --vimfox-accent: #975a16; }
     :root[data-vimfox-mode="passthrough"] { --vimfox-accent: #6b46c1; }
+    :root[data-vimfox-mode="caret"]       { --vimfox-accent: #b83280; }
     @media (prefers-color-scheme: dark) {
       :root[data-vimfox-mode="normal"]      { --vimfox-accent: #7cacf8; }
       :root[data-vimfox-mode="insert"]      { --vimfox-accent: #5bc98d; }
       :root[data-vimfox-mode="command"]     { --vimfox-accent: #e3b04b; }
       :root[data-vimfox-mode="passthrough"] { --vimfox-accent: #b98cf7; }
+      :root[data-vimfox-mode="caret"]       { --vimfox-accent: #f478bd; }
     }
 
     /* Whole-toolbar tint. Translucent ON TOP of whatever the theme painted,
@@ -1791,6 +1841,7 @@
     },
     destroy() {
       win.messageManager.removeMessageListener("VimFox:Focus", onFocusMsg);
+      win.messageManager.removeMessageListener("VimFox:Selection", onSelectionMsg);
       keyset.destroy();
       palette.destroy();
       whichKey.destroy();
@@ -1812,6 +1863,9 @@
   // A newly loaded frame does not know the mode yet; tell it.
   const onReadyMsg = () => broadcastMode();
   win.messageManager.addMessageListener("VimFox:Ready", onReadyMsg);
+
+  const onSelectionMsg = (msg) => onContentSelection(msg.data.hasSelection);
+  win.messageManager.addMessageListener("VimFox:Selection", onSelectionMsg);
 
   // Focus moving within browser UI (urlbar, findbar, sidebar) has no content
   // event behind it, so reconcile on the chrome focus event instead. Only
@@ -2111,6 +2165,31 @@
       );
       if (extra.isConnected && !extra.closing) gBrowser.removeTab(extra);
     }
+
+    // Caret mode. Driven entirely by content's selection report, so drive it
+    // the same way here.
+    setMode("normal");
+    onContentSelection(true);
+    check(`selection did not enter caret mode (mode=${mode})`, mode === "caret");
+    check(
+      "caret mode disabled the keyset — y could never be pressed",
+      !keyEl.hasAttribute("disabled")
+    );
+    check("Escape not grabbed in caret mode", !escEl.hasAttribute("disabled"));
+    // `y` must shadow the y* sequence prefix while a selection is alive.
+    dispatch("y");
+    check(`y in caret mode started a sequence instead of yanking (pending=${pending})`, !pending);
+    check("caret mode is still the mode after yanking", mode === "caret");
+    onContentSelection(false);
+    check(`losing the selection did not leave caret mode (mode=${mode})`, mode === "normal");
+    // ...and y goes back to being a prefix.
+    focusedChromeElement()?.blur?.();
+    dispatch("y");
+    check("y stopped being a sequence prefix outside caret mode", pending === "y");
+    setPending(null);
+    check("caret mode has no chip colour", chromeStyle.textContent.includes('mode="caret"'));
+    // The yank above raised a toast; later checks assert a clean slate.
+    toast.element.setAttribute("hidden", "true");
 
     // A shift-requiring candidate for a character that is UNSHIFTED on some
     // layouts fires the wrong command there; `+` ran find instead of zooming.

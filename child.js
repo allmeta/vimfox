@@ -52,6 +52,37 @@ function report() {
 addEventListener("focusin", report, true);
 addEventListener("focusout", report, true);
 
+// Selecting text puts the window in caret mode, where `y` yanks. Only the
+// has/has-not TRANSITION is reported: selectionchange fires on every mouse move
+// while a selection is being dragged out, and the parent needs one boolean.
+// The text itself never crosses the process boundary — cmd_copy is routed here.
+//
+// mouseup/keyup as well as selectionchange: the latter is not fired for every
+// way a selection can end, and the transition guard makes the extra calls free.
+let hadSelection = false;
+
+function reportSelection() {
+  const sel = content?.getSelection?.();
+  const has =
+    !!sel && !sel.isCollapsed && !!sel.toString().trim() && !isEditable();
+  if (has === hadSelection) return;
+  hadSelection = has;
+  sendAsyncMessage("VimFox:Selection", { hasSelection: has });
+}
+
+for (const type of ["selectionchange", "mouseup", "keyup"]) {
+  addEventListener(type, reportSelection, true);
+}
+
+addMessageListener("VimFox:ClearSelection", () => {
+  try {
+    content?.getSelection?.()?.removeAllRanges();
+  } catch (ex) {
+    // A cross-origin or torn-down frame: nothing to clear.
+  }
+  reportSelection();
+});
+
 // In normal mode the page gets no keys at all. Our own bindings are reserved
 // chrome keys, handled in the parent before content is consulted, so they are
 // unaffected — this only kills the leak of everything we do NOT bind (Google's
@@ -59,7 +90,9 @@ addEventListener("focusout", report, true);
 let swallowKeys = false;
 
 addMessageListener("VimFox:Mode", (msg) => {
-  swallowKeys = msg.data.mode === "normal";
+  // Caret mode is normal mode with a selection alive, so it swallows too —
+  // otherwise `y` would type into the page.
+  swallowKeys = msg.data.mode === "normal" || msg.data.mode === "caret";
 });
 
 // Keys normal mode does NOT swallow.
@@ -79,6 +112,12 @@ const SCROLL_KEYS = new Set([
 function passThrough(e) {
   if (/^F\d{1,2}$/.test(e.key)) return true;
   if (e.ctrlKey && e.shiftKey && !e.altKey) return true;
+  // Ctrl+C copies the selection. Handled by letting Firefox's own key_copy see
+  // it rather than by binding it: nothing of ours has to know about the
+  // selection, and Ctrl+C keeps working exactly as it does everywhere else.
+  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "c" || e.key === "C")) {
+    return true;
+  }
   return SCROLL_KEYS.has(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey;
 }
 

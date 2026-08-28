@@ -92,6 +92,7 @@ Three things fall out of that design and are worth knowing before changing it:
 | `pp` `Pp` | open clipboard URL (current / new tab) |
 | `-` `+` `=` | zoom out / in / reset |
 | `v` | caret browsing |
+| `y` `C-c` | copy the selection (selecting text enters caret mode) |
 | `i` `Esc` | insert / normal mode |
 | `C-v` | passthrough (leave with `Shift-Esc`) |
 | `C-w` | delete word (vim word classes, works everywhere) |
