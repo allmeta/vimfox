@@ -74,6 +74,20 @@ for (const type of ["selectionchange", "mouseup", "keyup"]) {
   addEventListener(type, reportSelection, true);
 }
 
+// qutebrowser's `o` — swap the stationary and moving end of the selection.
+// Gecko has no command for it, but the Selection API does it directly: the
+// anchor is the stationary end, the focus is the one motions move.
+addMessageListener("VimFox:ReverseSelection", () => {
+  try {
+    const sel = content?.getSelection?.();
+    if (!sel || sel.isCollapsed) return;
+    const { anchorNode, anchorOffset, focusNode, focusOffset } = sel;
+    sel.setBaseAndExtent(focusNode, focusOffset, anchorNode, anchorOffset);
+  } catch (ex) {
+    // Cross-origin or torn-down frame; nothing to swap.
+  }
+});
+
 addMessageListener("VimFox:ClearSelection", () => {
   try {
     content?.getSelection?.()?.removeAllRanges();

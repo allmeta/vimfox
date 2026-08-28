@@ -91,8 +91,8 @@ Three things fall out of that design and are worth knowing before changing it:
 | `yy` `yT` `yd` `yp` `ym` | copy url / title / domain / decoded / markdown |
 | `pp` `Pp` | open clipboard URL (current / new tab) |
 | `-` `+` `=` | zoom out / in / reset |
-| `v` | caret browsing |
-| `y` `C-c` | copy the selection (selecting text enters caret mode) |
+| `v` | caret mode (also entered by selecting text) |
+| `C-c` | copy the selection, any mode |
 | `i` `Esc` | insert / normal mode |
 | `C-v` | passthrough (leave with `Shift-Esc`) |
 | `C-w` | delete word (vim word classes, works everywhere) |
@@ -100,6 +100,29 @@ Three things fall out of that design and are worth knowing before changing it:
 | `wn` `wp` | new window / new private window |
 | `3j` `5J` | counts repeat a command; `Esc` throws the buffer away |
 | `:` | command menu — every command listed and filtered as you type |
+
+## Caret mode
+
+qutebrowser's keymap, from its `bindings.default.caret`. `v` enters it, or just
+select text with the mouse.
+
+| | |
+|---|---|
+| `h` `l` `j` `k` | char / line |
+| `w` `b` | word forward / back |
+| `0` `$` | start / end of line |
+| `gg` `G` | start / end of document |
+| `{` `}` | paragraph back / forward |
+| `v` | arm selection — motions extend it instead of moving the caret |
+| `o` | swap which end of the selection the motions move |
+| `y` | copy and leave |
+| `/` `n` `N` | find, seeded with the selection |
+| `H` `J` `K` `L` | scroll |
+| `c` `Esc` | back to normal |
+
+Counts work (`3w`). Every motion is a pair of Gecko commands — `cmd_wordNext`
+and `cmd_selectWordNext` — so `v` costs one array index. `e`, `V` and
+qutebrowser's `[` `]` block motions are absent: Gecko has no command for them.
 
 ## Omnibar
 

@@ -397,10 +397,10 @@
       }
     },
 
-    caretMode: () => {
-      const key = "accessibility.browsewithcaret";
-      Services.prefs.setBoolPref(key, !Services.prefs.getBoolPref(key, false));
-    },
+    // qutebrowser's `v`: enter caret mode. Browse-with-caret is switched on by
+    // the mode transition itself, and back off on the way out — it is no longer
+    // a pref toggle you have to remember to undo.
+    caretMode: () => setMode("caret"),
 
     passthrough: () => setMode("passthrough"),
 
@@ -461,6 +461,35 @@
     i: "insertMode",
     ":": "commandLine",
   };
+
+  // qutebrowser's caret keymap. Each motion is a PAIR: move the caret, or
+  // extend the selection while it is armed. That is exactly the shape Gecko's
+  // command table has, so `v` toggling selection costs one array index.
+  //
+  // Not included, all of which need hand-written content JS Gecko has no
+  // command for: `e` (end of word — cmd_wordNext is start of NEXT word),
+  // `V` (line selection), and `[` / `]` (qutebrowser's four block motions;
+  // only the paragraph pair below exists).
+  const CARET_MOTIONS = {
+    h: ["cmd_charPrevious", "cmd_selectCharPrevious"],
+    l: ["cmd_charNext", "cmd_selectCharNext"],
+    j: ["cmd_lineNext", "cmd_selectLineNext"],
+    k: ["cmd_linePrevious", "cmd_selectLinePrevious"],
+    w: ["cmd_wordNext", "cmd_selectWordNext"],
+    b: ["cmd_wordPrevious", "cmd_selectWordPrevious"],
+    0: ["cmd_beginLine", "cmd_selectBeginLine"],
+    $: ["cmd_endLine", "cmd_selectEndLine"],
+    G: ["cmd_moveBottom", "cmd_selectBottom"],
+    "{": ["cmd_beginParagraph", "cmd_selectBeginParagraph"],
+    "}": ["cmd_endParagraph", "cmd_selectEndParagraph"],
+  };
+
+  // Caret keys that are not motions. Needed by isBound(), so the layout
+  // fallback fires for them too — `{` and `}` are AltGr on Nordic layouts and
+  // the keyset will not match them.
+  const CARET_EXTRA = new Set([
+    "v", "o", "y", "c", "g", "/", "?", "n", "N", "H", "J", "K", "L",
+  ]);
 
   // Multi-key sequences, keyed by their prefix. Any prefix listed here becomes
   // a pending state that which-key renders.
@@ -543,6 +572,7 @@
   let count = ""; // digits typed before a command, vim-style: 3j
   let lastTab = null; // the tab `^` goes back to
   let contentSelected = false; // page has a non-empty selection
+  let caretSelecting = false; // caret motions extend the selection (`v`)
   let pendingTimer = 0;
   let whichKeyTimer = 0;
 
@@ -571,8 +601,33 @@
     updateEscape();
   }
 
+  const CARET_PREF = "accessibility.browsewithcaret";
+  let caretPrefWas = null;
+
+  function armCaret(on) {
+    try {
+      if (on) {
+        caretPrefWas = Services.prefs.getBoolPref(CARET_PREF, false);
+        Services.prefs.setBoolPref(CARET_PREF, true);
+        // Entering via a mouse selection arrives with one already made; via `v`
+        // it does not, and motions should then just move the caret.
+        caretSelecting = contentSelected;
+      } else {
+        if (caretPrefWas !== null) Services.prefs.setBoolPref(CARET_PREF, caretPrefWas);
+        caretPrefWas = null;
+        caretSelecting = false;
+      }
+    } catch (ex) {
+      log(`caret pref failed: ${ex}`);
+    }
+  }
+
   function setMode(next) {
     if (mode === next) return;
+    // The Gecko motion commands need a caret to move, so caret mode turns
+    // browse-with-caret on and puts it back exactly as it was on the way out.
+    if (next === "caret") armCaret(true);
+    else if (mode === "caret") armCaret(false);
     mode = next;
     count = "";
     setPending(null);
@@ -707,6 +762,9 @@
   // time (normal mode hands Escape to the page), and a fallback would undo
   // exactly that.
   function isBound(name) {
+    if (mode === "caret" && (CARET_MOTIONS[name] || CARET_EXTRA.has(name))) {
+      return true;
+    }
     if (pending) return !!SEQUENCES[pending][name];
     if (/^[1-9]$/.test(name) || (count && name === "0")) return true;
     return !!BINDINGS[name] || !!SEQUENCES[name];
@@ -717,6 +775,73 @@
   let keyToken = 0;
   let keyHandledToken = 0;
 
+  // A caret motion, honouring any count. `caretSelecting` picks which half of
+  // the pair runs — that is the whole of qutebrowser's `v` toggle.
+  function caretDo(pair) {
+    const cmd = pair[caretSelecting ? 1 : 0];
+    const n = takeCount();
+    try {
+      for (let i = 0; i < n; i++) win.goDoCommand(cmd);
+    } catch (ex) {
+      log(`${cmd} failed: ${ex}`);
+    }
+  }
+
+  // Returns true when the key was caret-mode's; false lets it fall through to
+  // the normal bindings.
+  function caretKey(keyName) {
+    if (pending === "g") {
+      setPending(null);
+      if (keyName === "g") caretDo(["cmd_moveTop", "cmd_selectTop"]);
+      return true;
+    }
+    if (keyName === "g") {
+      setPending("g");
+      return true;
+    }
+
+    const motion = CARET_MOTIONS[keyName];
+    if (motion) {
+      caretDo(motion);
+      return true;
+    }
+
+    switch (keyName) {
+      case "v":
+        // Space and Ctrl+Space are qutebrowser's aliases for this; both are
+        // deliberately left alone here. Space is in the child's scroll
+        // allowlist, and neither reaches dispatch() as a single character.
+        caretSelecting = !caretSelecting;
+        if (!caretSelecting) send("VimFox:ClearSelection");
+        toast.show(caretSelecting ? "selection on" : "selection off");
+        return true;
+      case "o":
+        send("VimFox:ReverseSelection");
+        return true;
+      case "y":
+        // vim leaves visual mode after a yank, and so does qutebrowser.
+        run("copySelection");
+        setMode("normal");
+        return true;
+      case "c":
+        setMode("normal");
+        return true;
+      // Uppercase HJKL scroll the page, exactly as qutebrowser has them.
+      case "H": run("scrollLeft"); return true;
+      case "J": run("scrollDown"); return true;
+      case "K": run("scrollUp"); return true;
+      case "L": run("scrollRight"); return true;
+      // `/` prefills the findbar from the selection on its own — findbar's
+      // startFind calls finder.getInitialSelection(), gated on
+      // accessibility.typeaheadfind.prefillwithselection, which defaults true.
+      case "/":
+      case "?": run("find"); return true;
+      case "n": run("findNext"); return true;
+      case "N": run("findPrev"); return true;
+    }
+    return false;
+  }
+
   function dispatch(keyName) {
     keyHandledToken = keyToken;
 
@@ -726,13 +851,10 @@
       return;
     }
 
-    // Caret mode: `y` yanks the selection, shadowing the y* sequence prefix for
-    // as long as a selection is alive. Ctrl+C is not handled here — it reaches
-    // Firefox's own key_copy through the child allowlist, natively.
-    if (mode === "caret" && keyName === "y") {
-      run("copySelection");
-      return;
-    }
+    // Caret mode runs its own keymap. Escape is excluded so the branch below
+    // still owns leaving. Unmapped keys fall through to the normal bindings
+    // rather than being swallowed, so nothing traps you in here.
+    if (mode === "caret" && keyName !== "Escape" && caretKey(keyName)) return;
 
     if (keyName === "Escape") {
       // A half-typed count is the first thing Escape throws away.
@@ -834,6 +956,9 @@
       // Count digits. 0 already arrives via g0, but 1-9 are bound to nothing on
       // their own and would never reach dispatch().
       ..."123456789",
+      // Caret-mode keys that no normal binding already registers.
+      ...Object.keys(CARET_MOTIONS),
+      ...CARET_EXTRA,
     ]);
 
     const keys = [];
@@ -2179,7 +2304,8 @@
     // `y` must shadow the y* sequence prefix while a selection is alive.
     dispatch("y");
     check(`y in caret mode started a sequence instead of yanking (pending=${pending})`, !pending);
-    check("caret mode is still the mode after yanking", mode === "caret");
+    // vim leaves visual mode on yank; so does qutebrowser.
+    check(`y did not leave caret mode (mode=${mode})`, mode === "normal");
     onContentSelection(false);
     check(`losing the selection did not leave caret mode (mode=${mode})`, mode === "normal");
     // ...and y goes back to being a prefix.
@@ -2188,6 +2314,44 @@
     check("y stopped being a sequence prefix outside caret mode", pending === "y");
     setPending(null);
     check("caret mode has no chip colour", chromeStyle.textContent.includes('mode="caret"'));
+
+    // Caret motions. Every pair must be [move, select] — a swapped pair would
+    // extend the selection when it should only move the caret, and the two
+    // differ by one word in the command name, so it is easy to get wrong.
+    for (const [key, pair] of Object.entries(CARET_MOTIONS)) {
+      check(
+        `caret motion ${key} is not a [move, select] pair (${pair})`,
+        pair.length === 2 &&
+          pair[0].startsWith("cmd_") &&
+          pair[1].startsWith("cmd_select") &&
+          !pair[0].startsWith("cmd_select")
+      );
+      check(
+        `caret motion ${key} is not registered as a key`,
+        !!keyset.element.querySelector(`key[key="${key}"]`) || CARET_EXTRA.has(key)
+      );
+    }
+
+    // `v` toggles whether motions extend. Entering by `v` starts unarmed;
+    // entering with a selection already made starts armed.
+    setMode("normal");
+    setMode("caret");
+    check("`v` into caret mode should not start armed", caretSelecting === false);
+    caretKey("v");
+    check("`v` did not arm the selection", caretSelecting === true);
+    caretKey("v");
+    check("`v` did not disarm the selection", caretSelecting === false);
+    check(
+      "browse-with-caret not on in caret mode",
+      Services.prefs.getBoolPref(CARET_PREF, false)
+    );
+    setMode("normal");
+    check("browse-with-caret not restored on leaving caret mode", caretPrefWas === null);
+    // Unmapped keys must fall through, or caret mode traps you.
+    setMode("caret");
+    check("caret mode swallowed an unmapped key", caretKey("x") === false);
+    setMode("normal");
+    toast.element.setAttribute("hidden", "true");
     // The yank above raised a toast; later checks assert a clean slate.
     toast.element.setAttribute("hidden", "true");
 

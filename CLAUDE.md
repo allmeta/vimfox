@@ -111,7 +111,25 @@ swallowing keys, or `y` would type into the page.
 - `refreshMode()` must return caret while a selection is alive. Focus events
   fire constantly while dragging one out, and each would otherwise drop the
   mode back to normal before `y` could be pressed.
-- `y` shadows the `y*` sequence prefix for as long as the selection lasts.
+- The keymap is qutebrowser's (`configdata.yml`, `bindings.default.caret`).
+  `CARET_MOTIONS` holds a PAIR per key — `[move, select]` — because Gecko has
+  both variants of every motion, so `v` toggling selection is one array index.
+  Verify against `strings libxul.so | grep '^cmd_select'`; the commands are not
+  in omni.ja.
+- Caret mode sets `accessibility.browsewithcaret` and restores the previous
+  value on exit. Without a caret there is nothing for the motions to move.
+- Unmapped keys FALL THROUGH to the normal bindings. Caret mode must not be a
+  trap.
+- `y` shadows the `y*` sequence prefix, yanks, and leaves — vim and
+  qutebrowser both exit visual mode on yank.
+- `/` needs no work to search the selection: findbar's `startFind` calls
+  `finder.getInitialSelection()`, gated on
+  `accessibility.typeaheadfind.prefillwithselection`, which defaults true.
+- Gecko has NO command for `e` (end of word), `V` (line selection), or
+  qutebrowser's four `[` `]` block motions — only the paragraph pair. Those
+  need hand-written content JS, which is why they are absent. `o`
+  (selection-reverse) is content JS already: swap anchor and focus with
+  `setBaseAndExtent`.
 - Ctrl+C is NOT bound. It goes through `passThrough()` in child.js to Firefox's
   own key_copy, so nothing of ours has to know about the selection.
 
