@@ -273,7 +273,9 @@
     const tab = gBrowser.selectedTab;
     const target = tab._tPos + dir;
     if (target >= 0 && target < gBrowser.tabs.length) {
-      gBrowser.moveTabTo(tab, target);
+      // FF152 takes an options object. A bare index destructures to undefined
+      // and the call becomes a silent no-op — no error, the tab just sits there.
+      gBrowser.moveTabTo(tab, { tabIndex: target });
     }
   }
 
@@ -2054,6 +2056,30 @@
 
     // `^` is a dead key on Nordic layouts, so the alias is not optional.
     check("no layout-proof alternate-tab binding", SEQUENCES.g.l === "tabAlternate");
+
+    // gJ/gK were a silent no-op after moveTabTo grew an options object: no
+    // error, the tab simply did not move. Only actually moving a tab catches
+    // that class of API drift, so this one is a real functional check.
+    {
+      const extra = gBrowser.addTab("about:blank", {
+        triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+      });
+      const restore = gBrowser.selectedTab;
+      gBrowser.selectedTab = extra;
+      const before = extra._tPos;
+      cmds.tabMoveLeft();
+      check(
+        `tabMoveLeft did not move the tab (${before} -> ${extra._tPos})`,
+        extra._tPos === before - 1
+      );
+      cmds.tabMoveRight();
+      check(
+        `tabMoveRight did not move the tab (${before} -> ${extra._tPos})`,
+        extra._tPos === before
+      );
+      gBrowser.selectedTab = restore;
+      gBrowser.removeTab(extra);
+    }
 
     // The `:` menu and the executor must stay one table: a listed command that
     // does not run is worse than no menu at all.

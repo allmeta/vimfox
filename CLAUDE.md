@@ -225,6 +225,14 @@ sleep 15; grep -E "^vimfox" vimfox.log
 Log keeps: startup checkpoints, `mode ->`, `suppressed <cmd>`. Add temporary
 logging freely; strip when done.
 
+## tabbrowser API drift
+
+`gBrowser.moveTabTo(tab, index)` became `moveTabTo(tab, { tabIndex })` in
+FF152. A bare number destructures to `undefined` and the call is a SILENT
+no-op — no throw, no log, the tab just does not move. Assume any other
+`gBrowser` call can go the same way, and prefer a self-test that observes the
+effect over one that only checks the call happened.
+
 ## Fragile
 
 - `apt upgrade` wipes `system/` files. Re-run `system/install.sh`.
