@@ -58,15 +58,20 @@ resolves `resource://vimfox/`.
   calls the setters, and anything left at its default stays wrong until the
   first real mode change.
 - Dynamically added `<key>` needs keyset remove + re-append to register.
-- Matching is strict key+modifiers. `:` = shift+`;` (US) or shift+`.`
-  (Nordic). Uppercase letters need `modifiers="shift"`.
-- A `SHIFTED` candidate is a GUESS, and a wrong guess is WORSE than a missing
-  one: the layout fallback covers what XUL misses, but nothing undoes a key
-  that fires the wrong command. `?` listing `+` made `+` open find instead of
-  zooming, because `+` is unshifted on Nordic layouts and Gecko's
-  shortcut-key candidates let a shift-requiring `<key>` match it anyway. Same
-  reason `$` must not list `4` — it would shadow the count digit. Add a
-  candidate only for a layout you have actually tested.
+- **This machine is a US layout.** Every `SHIFTED` entry is US.
+- Modifiers match EXACTLY, but the `key` attribute is matched against a LIST of
+  shortcut-key candidates for the press: the character produced, and the
+  character that physical key gives unshifted. So ONE keystroke can match TWO
+  different `<key>` elements, and document order decides the winner. This is
+  the whole reason the table is fragile — there is no way to say "the
+  character `$`, however it is typed".
+- A `SHIFTED` candidate must be the UNSHIFTED character on the same physical
+  key. `?: ["/"]` is right. `?: ["+"]` was wrong and made Shift+= (US `+`)
+  match both `key="=" shift` → zoom and `key="+" shift` → find; find won.
+  A wrong candidate is worse than a missing one — the layout fallback covers a
+  miss, nothing undoes a key firing the wrong command. The self-test enforces
+  the rule: no candidate may itself be a shifted character.
+- Uppercase letters need `modifiers="shift"`.
 
 ## Where the keyset does NOT fire
 

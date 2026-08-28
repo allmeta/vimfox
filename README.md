@@ -96,7 +96,7 @@ Three things fall out of that design and are worth knowing before changing it:
 | `i` `Esc` | insert / normal mode |
 | `C-v` | passthrough (leave with `Shift-Esc`) |
 | `C-w` | delete word (vim word classes, works everywhere) |
-| `^` `gl` | last used tab (`^` is a dead key on Nordic layouts) |
+| `^` `gl` | last used tab (`^` is a dead key on some layouts) |
 | `wn` `wp` | new window / new private window |
 | `3j` `5J` | counts repeat a command; `Esc` throws the buffer away |
 | `:` | command menu — every command listed and filtered as you type |

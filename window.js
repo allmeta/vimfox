@@ -444,8 +444,8 @@
     "/": "find",
     "?": "find",
     "'": "findLinks",
-    // Vimium's chord. On a Nordic layout `^` is a DEAD key (Shift+¨) and may
-    // never arrive as a keypress at all, so `gl` below is the real one there.
+    // Vimium's chord. `gl` below is an alias, for layouts where `^` is a dead
+    // key and never arrives as a keypress at all.
     "^": "tabAlternate",
     "-": "zoomOut",
     "+": "zoomIn",
@@ -485,8 +485,8 @@
   };
 
   // Caret keys that are not motions. Needed by isBound(), so the layout
-  // fallback fires for them too — `{` and `}` are AltGr on Nordic layouts and
-  // the keyset will not match them.
+  // fallback fires for them too: `{` and `}` have no SHIFTED entry, so the
+  // keyset only has the bare `key="{"` element, which a Shift press misses.
   const CARET_EXTRA = new Set([
     "v", "o", "y", "c", "g", "/", "?", "n", "N", "H", "J", "K", "L",
   ]);
@@ -771,9 +771,9 @@
   }
 
   // Modes the layout fallback runs in. Caret mode belongs here as much as
-  // normal does: `$` is AltGr+4 on a Nordic layout, the keyset never matches
-  // it, and gating the fallback on normal alone left every such key dead in
-  // caret mode while `g$` — normal mode — worked fine.
+  // normal does. Any key the keyset misses — `{` and `}` have no SHIFTED
+  // candidate at all — was dead in caret mode while working in normal, because
+  // this gate said "normal" and nothing else.
   const FALLBACK_MODES = new Set(["normal", "caret"]);
 
   // Bumped on every key the fallback is watching; dispatch() stamps it when the
@@ -931,19 +931,24 @@
   // Characters needing Shift that are not uppercase letters, so the
   // `ch !== ch.toLowerCase()` test misses them. XUL matches key + modifiers
   // strictly, so `<key key=":">` never fires — it must be Shift plus the
-  // unshifted character, and which key that is depends on layout: US/UK put `:`
-  // on `;`, Nordic layouts put it on `.`.
+  // unshifted character on the same physical key.
   //
-  // A candidate here is a GUESS, and a wrong guess is worse than a missing one:
-  // the layout fallback covers what XUL misses, but nothing undoes a key that
-  // fires the WRONG command. `?` must not list `+` and `$` must not list `4` —
-  // on a Nordic layout both are UNSHIFTED, and Gecko's shortcut-key candidates
-  // let a shift-requiring <key> match them anyway, so `+` ran find instead of
-  // zooming and Shift+4 would have shadowed the count digit.
+  // Gecko matches the `key` attribute against a LIST of candidates for the
+  // press — the character produced AND the character that physical key gives
+  // unshifted — with an exact modifier match. So one keystroke can match two
+  // different <key> elements and document order picks the winner.
+  //
+  // That makes a wrong candidate far worse than a missing one: the layout
+  // fallback covers a miss, but nothing undoes a key that fires the WRONG
+  // command. `?` listed `+`, so Shift+= (US `+`) matched BOTH `key="=" shift`
+  // (zoom in, correct) and `key="+" shift` (find, wrong) — and find won.
+  //
+  // Everything below is the US layout, the one this is actually tested on.
   const SHIFTED = {
-    ":": [";", "."],
+    ":": [";"],
     "?": ["/"],
     '"': ["'"],
+    $: ["4"],
     "+": ["="],
   };
 
@@ -2243,7 +2248,7 @@
     // Digits have to be registered, or dispatch never sees them at all.
     check("count digits not in the keyset", !!keyset.element.querySelector('key[key="7"]'));
 
-    // `^` is a dead key on Nordic layouts, so the alias is not optional.
+    // `^` is a dead key on some layouts, so the alias is not optional.
     check("no layout-proof alternate-tab binding", SEQUENCES.g.l === "tabAlternate");
 
     // gJ/gK were a silent no-op after moveTabTo grew an options object: no
@@ -2380,10 +2385,24 @@
     // The yank above raised a toast; later checks assert a clean slate.
     toast.element.setAttribute("hidden", "true");
 
-    // A shift-requiring candidate for a character that is UNSHIFTED on some
-    // layouts fires the wrong command there; `+` ran find instead of zooming.
-    check("`?` must not claim the `+` key", !(SHIFTED["?"] ?? []).includes("+"));
-    check("`$` must not claim the `4` key", !(SHIFTED.$ ?? []).includes("4"));
+    // A candidate must be the UNSHIFTED character on the same physical key.
+    // Claiming a character that is itself shift-produced is what breaks: `?`
+    // listed `+`, so Shift+= matched both `key="=" shift` (zoom, correct) and
+    // `key="+" shift` (find, wrong), and document order handed it to find.
+    // `?` claiming `/` is fine by contrast — exact modifier matching keeps
+    // `key="/"` and `key="/" modifiers="shift"` apart.
+    for (const [ch, bases] of Object.entries(SHIFTED)) {
+      for (const base of bases) {
+        check(
+          `SHIFTED[${ch}] claims "${base}", which is itself a shifted character`,
+          !SHIFTED[base]
+        );
+      }
+    }
+    // `$` is Shift+4 on US, so the keyset can serve it and g$ does not have to
+    // fall back. Reserved keys beat a hung content process; the fallback does
+    // not.
+    check("`$` has no keyset candidate", (SHIFTED.$ ?? []).includes("4"));
 
     // The `:` menu and the executor must stay one table: a listed command that
     // does not run is worse than no menu at all.
