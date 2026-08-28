@@ -40,6 +40,10 @@
   // How long the yank confirmation stays up.
   const TOAST_MS = 1000;
 
+  // Ceiling on a vim-style count, so a slipped keystroke cannot run a command
+  // hundreds of times.
+  const COUNT_MAX = 100;
+
   const log = (m) => dump(`vimfox: ${m}\n`);
 
   // ---------------------------------------------------------------- actor ---
@@ -339,6 +343,13 @@
     scrollRight: () => send("VimFox:ScrollX", { dx: SCROLL_STEP_X }),
 
     // --- tabs -------------------------------------------------------------
+    // Alternate tab. Firefox tracks no such thing, so TabSelect's own
+    // previousTab is remembered below. Closed tabs are skipped, not resurrected.
+    tabAlternate: () => {
+      if (lastTab?.isConnected) gBrowser.selectedTab = lastTab;
+    },
+    windowNew:     () => win.OpenBrowserWindow(),
+    windowPrivate: () => win.OpenBrowserWindow({ private: true }),
     tabClone:     () => gBrowser.duplicateTab(gBrowser.selectedTab),
     tabMoveLeft:  () => moveTab(-1),
     tabMoveRight: () => moveTab(1),
@@ -383,7 +394,7 @@
     editUrl:     () =>
       palette.open("open", null, "current",
         gBrowser.selectedBrowser.currentURI?.spec ?? ""),
-    commandLine: () => palette.open("ex", null),
+    commandLine: () => palette.open("ex", listCommands()),
 
     insertMode:  () => setMode("insert"),
   };
@@ -415,6 +426,9 @@
     "/": "find",
     "?": "find",
     "'": "findLinks",
+    // Vimium's chord. On a Nordic layout `^` is a DEAD key (Shift+¨) and may
+    // never arrive as a keypress at all, so `gl` below is the real one there.
+    "^": "tabAlternate",
     "-": "zoomOut",
     "+": "zoomIn",
     "=": "zoomReset",
@@ -445,6 +459,11 @@
       $: "tabLast",
       u: "urlUp",
       U: "urlUpTab",
+      l: "tabAlternate",
+    },
+    w: {
+      n: "windowNew",
+      p: "windowPrivate",
     },
     y: {
       y: "yankUrl",
@@ -487,6 +506,9 @@
     tabLast: "last tab",
     urlUp: "up one URL path",
     urlUpTab: "up one URL path (new tab)",
+    tabAlternate: "last used tab",
+    windowNew: "new window",
+    windowPrivate: "new private window",
     yankUrl: "copy URL",
     yankTitle: "copy title",
     yankDomain: "copy domain",
@@ -500,6 +522,8 @@
 
   let mode = "normal";
   let pending = null; // active sequence prefix, e.g. "g"
+  let count = ""; // digits typed before a command, vim-style: 3j
+  let lastTab = null; // the tab `^` goes back to
   let pendingTimer = 0;
   let whichKeyTimer = 0;
 
@@ -507,7 +531,7 @@
   // mode, or aborting a half-typed key combo. With neither pending it stays
   // disabled, so the page receives Escape as normal.
   function updateEscape() {
-    keyset.setEscapeEnabled(mode === "insert" || !!pending);
+    keyset.setEscapeEnabled(mode === "insert" || !!pending || !!count);
     // Only passthrough mode needs a way out that the page cannot swallow.
     keyset.setPassthroughExitEnabled(mode === "passthrough");
   }
@@ -529,6 +553,7 @@
   function setMode(next) {
     if (mode === next) return;
     mode = next;
+    count = "";
     setPending(null);
     keyset.setEnabled(mode === "normal");
     updateEscape();
@@ -537,6 +562,8 @@
     // Bare word: the vim `-- INSERT --` dashes are redundant inside a chip.
     indicator.textContent = mode;
     indicator.dataset.mode = mode;
+    // Drives the toolbar tint. On :root so the whole chrome can read it.
+    document.documentElement.dataset.vimfoxMode = mode;
   }
 
   // Content needs the mode so it can swallow every key in normal mode. All
@@ -606,12 +633,26 @@
     }
     const fn = cmds[name];
     if (!fn) return false;
+    // ponytail: a count just runs the command N times. Right for every motion
+    // we have (3j, 5J, 2x); a command that wanted the number itself — vim's
+    // `42G` going to line 42 — would need to read it from cmds instead.
+    const n = takeCount();
     try {
-      fn();
+      for (let i = 0; i < n; i++) fn();
     } catch (ex) {
       log(`${name} failed: ${ex}`);
     }
     return true;
+  }
+
+  // Counts are capped rather than trusted: a fat-fingered `999x` should not
+  // close a thousand tabs.
+  function takeCount() {
+    const n = Math.min(parseInt(count || "1", 10), COUNT_MAX);
+    if (count && n < parseInt(count, 10)) log(`count ${count} clamped to ${n}`);
+    count = "";
+    updateEscape();
+    return n;
   }
 
   // Translate a DOM keydown into the names used by BINDINGS / SEQUENCES.
@@ -624,7 +665,25 @@
     return e.key; // already the shifted character, e.g. "J" or ":"
   }
 
+  // Is this key ours right now? Used by the layout fallback below, which must
+  // not fire for keys we would ignore anyway. Escape and Shift-Escape are
+  // deliberately excluded: their XUL keys are disabled on purpose most of the
+  // time (normal mode hands Escape to the page), and a fallback would undo
+  // exactly that.
+  function isBound(name) {
+    if (pending) return !!SEQUENCES[pending][name];
+    if (/^[1-9]$/.test(name) || (count && name === "0")) return true;
+    return !!BINDINGS[name] || !!SEQUENCES[name];
+  }
+
+  // Bumped on every key the fallback is watching; dispatch() stamps it when the
+  // keyset wins, which is how the two paths avoid running the same key twice.
+  let keyToken = 0;
+  let keyHandledToken = 0;
+
   function dispatch(keyName) {
+    keyHandledToken = keyToken;
+
     // The one key passthrough mode does not hand to the page.
     if (keyName === "Shift-Escape") {
       setMode("normal");
@@ -632,6 +691,12 @@
     }
 
     if (keyName === "Escape") {
+      // A half-typed count is the first thing Escape throws away.
+      if (count) {
+        count = "";
+        updateEscape();
+        return;
+      }
       // Cancelling a combo is all Escape does here — don't also steal focus.
       if (pending) {
         setPending(null);
@@ -663,6 +728,15 @@
       if (cmd) run(cmd);
       return;
     }
+
+    // Digits before a command are a count. Only with no sequence pending — `g0`
+    // and `g$` are bindings, not counts — and a leading 0 is not a count either.
+    if (/^[0-9]$/.test(keyName) && (count || keyName !== "0")) {
+      count += keyName;
+      updateEscape(); // Escape now has a count to throw away
+      return;
+    }
+
     if (SEQUENCES[keyName]) {
       if (!chromeInputFocused()) setPending(keyName);
       return;
@@ -687,6 +761,9 @@
       ...Object.keys(BINDINGS).filter((k) => !isCombo(k)),
       ...Object.keys(SEQUENCES),
       ...Object.values(SEQUENCES).flatMap((table) => Object.keys(table)),
+      // Count digits. 0 already arrives via g0, but 1-9 are bound to nothing on
+      // their own and would never reach dispatch().
+      ..."123456789",
     ]);
 
     const keys = [];
@@ -1346,8 +1423,20 @@
         } else if (text) {
           openInput(text, where);
         }
-      } else if (kind === "ex" && text) {
-        runEx(text);
+      } else if (kind === "ex") {
+        if (choice) {
+          // Picking a command that needs an argument completes the line rather
+          // than running it — selecting `open` should let you type the URL, not
+          // open the empty string.
+          if (choice.arg) {
+            input.value = `${choice.name} `;
+            filter();
+            return;
+          }
+          runEx(choice.name);
+        } else if (text) {
+          runEx(text);
+        }
       }
       close();
     }
@@ -1458,11 +1547,46 @@
 
   const chromeStyle = document.createElementNS(HTML, "style");
   chromeStyle.textContent = `
-    /* Address bar at the BOTTOM. browser.xhtml's <body> is a flex column with
+    /* Address bar stays where Firefox puts it. To move it to the BOTTOM,
+       uncomment this: browser.xhtml's <body> is a flex column with
        #navigator-toolbox and #browser as plain siblings, so reordering is the
-       whole trick — no reparenting, nothing for Firefox to undo. Vertical tabs
-       are Firefox's own (sidebar.revamp + sidebar.verticalTabs in user.js). */
-    #navigator-toolbox { order: 1; }
+       whole trick — no reparenting, nothing for Firefox to undo.
+       #navigator-toolbox { order: 1; } */
+
+    /* One source for the mode colour: the chip and the toolbar both read it.
+       :root carries the mode so the toolbar can be styled without reaching
+       into the chip. */
+    /* Plain hex per scheme, NOT light-dark(): a light-dark() value nested
+       inside color-mix() computes to transparent, which silently killed the
+       toolbar tint while leaving the chip's own text colour working.
+       NB: this block lives in a JS template literal — no backticks. */
+    :root[data-vimfox-mode="normal"]      { --vimfox-accent: #2b6cb0; }
+    :root[data-vimfox-mode="insert"]      { --vimfox-accent: #2f855a; }
+    :root[data-vimfox-mode="command"]     { --vimfox-accent: #975a16; }
+    :root[data-vimfox-mode="passthrough"] { --vimfox-accent: #6b46c1; }
+    @media (prefers-color-scheme: dark) {
+      :root[data-vimfox-mode="normal"]      { --vimfox-accent: #7cacf8; }
+      :root[data-vimfox-mode="insert"]      { --vimfox-accent: #5bc98d; }
+      :root[data-vimfox-mode="command"]     { --vimfox-accent: #e3b04b; }
+      :root[data-vimfox-mode="passthrough"] { --vimfox-accent: #b98cf7; }
+    }
+
+    /* Whole-toolbar tint. Translucent ON TOP of whatever the theme painted,
+       rather than replacing --toolbox-background-color: themes write that
+       variable as an INLINE style on :root, so overriding it would need
+       !important and would throw the user's theme away. In the default
+       (non-nova) layout #navigator-toolbox has no background of its own — the
+       colour comes from <body> underneath — so a translucent one layers.
+       Turn the tint down or off with this one number. */
+    #navigator-toolbox {
+      /* Literal percentage: a var() in color-mix's percentage slot resolved to
+         0% and the tint silently vanished. Turn the strength up or down here. */
+      background-color: color-mix(in srgb, var(--vimfox-accent) 22%, transparent);
+      transition: background-color 120ms ease-out;
+    }
+    /* Normal mode is where you live, so the toolbar keeps the theme's own
+       colour. The chip still says NORMAL in blue; only the panel goes quiet. */
+    :root[data-vimfox-mode="normal"] #navigator-toolbox { background-color: transparent; }
 
     #vimfox-mode {
       display: flex;
@@ -1487,11 +1611,6 @@
       background: var(--vimfox-accent); color: #fff;
       border-start-start-radius: 4px;
     }
-
-    #vimfox-mode[data-mode="normal"]      { --vimfox-accent: light-dark(#2b6cb0, #7cacf8); }
-    #vimfox-mode[data-mode="insert"]      { --vimfox-accent: light-dark(#2f855a, #5bc98d); }
-    #vimfox-mode[data-mode="command"]     { --vimfox-accent: light-dark(#975a16, #e3b04b); }
-    #vimfox-mode[data-mode="passthrough"] { --vimfox-accent: light-dark(#6b46c1, #b98cf7); }
 
     #vimfox-whichkey {
       position: fixed; inset-inline-end: 0; bottom: var(--vimfox-chrome-bottom, 22px);
@@ -1582,6 +1701,12 @@
   // window.js runs on the window's load event, so <html:moz-urlbar> has already
   // built its input row by now — no retry needed.
   const urlbarRow = document.querySelector("#urlbar .urlbar-input-container");
+  // Paint the starting mode. setMode() returns early when the mode is
+  // unchanged, so nothing else would until the first real switch.
+  indicator.textContent = mode;
+  indicator.dataset.mode = mode;
+  document.documentElement.dataset.vimfoxMode = mode;
+
   if (urlbarRow) {
     urlbarRow.append(indicator);
   } else {
@@ -1590,34 +1715,64 @@
     document.documentElement.append(indicator);
   }
 
-  // which-key and toasts hug the bottom edge, which the toolbox now occupies.
-  // Track its height rather than guessing — it changes in fullscreen and when
-  // the bookmarks toolbar toggles.
+  // which-key and toasts hug the bottom edge. Whether the toolbox is in the
+  // way is MEASURED, not assumed, so moving the address bar top-to-bottom
+  // stays a one-line CSS change. Height also shifts in fullscreen and when the
+  // bookmarks toolbar toggles. body is observed too: it resizes with the
+  // window, which is what moves the bottom edge.
   const toolbox = document.getElementById("navigator-toolbox");
-  const toolboxObserver = new win.ResizeObserver(([entry]) =>
+  const updateChromeInset = () => {
+    const box = toolbox.getBoundingClientRect();
+    const atBottom = box.bottom >= win.innerHeight - 1;
     document.documentElement.style.setProperty(
       "--vimfox-chrome-bottom",
-      `${entry.contentRect.height + 6}px`
-    )
-  );
-  if (toolbox) toolboxObserver.observe(toolbox);
+      atBottom ? `${box.height + 6}px` : "22px"
+    );
+  };
+  const toolboxObserver = new win.ResizeObserver(updateChromeInset);
+  if (toolbox) {
+    // Once up front: ResizeObserver does not deliver until the next frame, and
+    // the self-test runs before that.
+    updateChromeInset();
+    toolboxObserver.observe(toolbox);
+    toolboxObserver.observe(document.body);
+  }
 
   // ------------------------------------------------------------- ex cmds ---
 
+  // Ex commands as data, so the `:` menu and the executor read one table and
+  // cannot drift — a command that is listed is a command that runs.
+  const EX = {
+    open:    { arg: "url", desc: "open in this tab",  run: (a) => openInput(a, "current") },
+    tabopen: { arg: "url", desc: "open in a new tab", run: (a) => openInput(a, "tab") },
+    q:       { desc: "close this tab",  run: () => cmds.tabClose() },
+    reload:  { desc: "reload the page", run: () => cmds.reload() },
+    restart: {
+      desc: "restart Firefox",
+      run: () =>
+        Services.startup.quit(
+          Services.startup.eAttemptQuit | Services.startup.eRestart
+        ),
+    },
+  };
+
   function runEx(line) {
-    const [cmd, ...rest] = line.split(/\s+/);
-    const arg = rest.join(" ");
-    switch (cmd) {
-      case "open":    return openInput(arg, "current");
-      case "tabopen": return openInput(arg, "tab");
-      case "q":       return cmds.tabClose();
-      case "reload":  return cmds.reload();
-      case "restart": return Services.startup.quit(
-        Services.startup.eAttemptQuit | Services.startup.eRestart
-      );
-      default:
-        log(`unknown command: ${cmd}`);
-    }
+    const [cmd, ...rest] = line.trim().split(/\s+/);
+    const entry = EX[cmd];
+    if (!entry) return log(`unknown command: ${cmd}`);
+    entry.run(rest.join(" "));
+  }
+
+  // Every command, shown the moment `:` opens and filtered as you type — the
+  // same treatment gt gives tabs. Nothing to memorise.
+  function listCommands() {
+    return Object.entries(EX).map(([name, entry]) => ({
+      source: "cmd",
+      label: entry.arg ? `${name} {${entry.arg}}` : name,
+      sub: entry.desc,
+      name,
+      arg: !!entry.arg,
+    }));
   }
 
   // -------------------------------------------------------------- wiring ---
@@ -1637,6 +1792,7 @@
       toolboxObserver.disconnect();
       indicator.remove();
       chromeStyle.remove();
+      delete document.documentElement.dataset.vimfoxMode;
       delete win.VimFox;
     },
   };
@@ -1658,7 +1814,10 @@
   // Switching tabs always lands in normal mode. contentEditable tracks the
   // window, not the tab, so without this you inherit the previous tab's state
   // — and a new tab whose search box autofocuses would strand you in insert.
-  gBrowser.tabContainer.addEventListener("TabSelect", () => {
+  gBrowser.tabContainer.addEventListener("TabSelect", (e) => {
+    // Recorded before the early return, or `^` would forget every switch made
+    // while passthrough was on.
+    if (e.detail?.previousTab) lastTab = e.detail.previousTab;
     if (mode === "passthrough" || mode === "command") return;
     contentEditable = false;
     setMode("normal");
@@ -1697,6 +1856,28 @@
         const name = keyNameFor(e);
         if (name) dispatch(name);
         return;
+      }
+
+      // Layout fallback. XUL matches key+modifiers strictly against whatever
+      // character the LAYOUT produces, and which physical key carries `:` or
+      // `$` differs per layout — SHIFTED below is guesswork, and on a Norwegian
+      // keyboard neither guess for `$` fires. Rather than keep adding
+      // candidates, notice when the keyset did not run and dispatch from here.
+      //
+      // Deliberately NOT the primary path: the keyset is `reserved`, so it beats
+      // a hung content process, and that is the whole point of the project.
+      // This only runs when the keyset produced nothing — deferred, because the
+      // XUL key handler runs in the system group, after this capture listener.
+      if (mode === "normal" && !chromeInputFocused()) {
+        const name = keyNameFor(e);
+        if (name && isBound(name)) {
+          const token = ++keyToken;
+          win.setTimeout(() => {
+            if (keyHandledToken === token) return; // the keyset got it
+            log(`keyset missed ${name}; dispatching from the layout fallback`);
+            dispatch(name);
+          }, 0);
+        }
       }
 
       // command mode is the palette, which handles its own keys.
@@ -1770,10 +1951,33 @@
       indicator.parentElement?.classList.contains("urlbar-input-container")
     );
     check(
-      "toolbox not ordered below the content area",
-      win.getComputedStyle(document.getElementById("navigator-toolbox")).order ===
-        "1"
+      "which-key inset not set",
+      !!document.documentElement.style.getPropertyValue("--vimfox-chrome-bottom")
     );
+    // The toolbar tint is driven off :root, so a missing attribute means the
+    // whole chrome silently stays untinted.
+    check(
+      "mode not mirrored onto :root for the toolbar tint",
+      document.documentElement.dataset.vimfoxMode === mode
+    );
+    // Normal mode is deliberately untinted, so check a mode that is not.
+    const toolboxEl = document.getElementById("navigator-toolbox");
+    // The tint transitions, and getComputedStyle mid-transition reports the
+    // colour it is animating FROM — which is the value under test. Suppress the
+    // transition for the duration of these checks.
+    toolboxEl.style.transition = "none";
+    // color-mix() computes to `color(srgb r g b / a)`, not `rgba(...)`, so read
+    // the alpha rather than string-matching a serialisation.
+    const tintAlpha = () => {
+      const c = win.getComputedStyle(toolboxEl).backgroundColor;
+      const m = c.match(/[/,]\s*([\d.]+)\s*\)$/);
+      return m ? parseFloat(m[1]) : 1;
+    };
+    setMode("insert");
+    check("toolbar tint not applied in insert mode", tintAlpha() > 0);
+    setMode("normal");
+    check(`toolbar tinted in normal mode (alpha ${tintAlpha()})`, tintAlpha() === 0);
+    toolboxEl.style.transition = "";
 
     const keyEl = keyset.element.querySelector('key[key="j"]');
     const escEl = keyset.element.querySelector("key[keycode]");
@@ -1786,6 +1990,10 @@
       "Escape not released to page in normal mode",
       escEl.hasAttribute("disabled")
     );
+    // about:blank opens with the urlbar focused, and setPending is a no-op while
+    // a chrome field has focus — without this the check silently tested nothing
+    // and failed depending on the start page.
+    focusedChromeElement()?.blur?.();
     dispatch("g");
     check("Escape not grabbed while combo pending", !escEl.hasAttribute("disabled"));
     dispatch("Escape");
@@ -1823,6 +2031,42 @@
       "key_aboutProcesses not restored after passthrough",
       !aboutProcesses?.hasAttribute("disabled")
     );
+
+    // Counts. Digits accumulate, Escape throws the buffer away, and a count is
+    // consumed exactly once — a leftover would silently multiply the next
+    // command.
+    setMode("normal");
+    dispatch("1");
+    dispatch("2");
+    check(`count did not accumulate (count=${count})`, count === "12");
+    check("Escape not grabbed while a count is pending", !escEl.hasAttribute("disabled"));
+    dispatch("Escape");
+    check(`Escape did not clear the count (count=${count})`, count === "");
+    dispatch("3");
+    check("takeCount did not read the buffer", takeCount() === 3);
+    check(`count not cleared after use (count=${count})`, count === "");
+    // A leading 0 is g0's key, never a count.
+    dispatch("0");
+    check(`leading 0 started a count (count=${count})`, count === "");
+    check("count not clamped", (() => { count = "999"; return takeCount() === COUNT_MAX; })());
+    // Digits have to be registered, or dispatch never sees them at all.
+    check("count digits not in the keyset", !!keyset.element.querySelector('key[key="7"]'));
+
+    // `^` is a dead key on Nordic layouts, so the alias is not optional.
+    check("no layout-proof alternate-tab binding", SEQUENCES.g.l === "tabAlternate");
+
+    // The `:` menu and the executor must stay one table: a listed command that
+    // does not run is worse than no menu at all.
+    const listed = listCommands();
+    check("`:` menu is empty", listed.length > 0);
+    check(
+      "`:` menu does not list every ex command",
+      listed.length === Object.keys(EX).length
+    );
+    for (const it of listed) {
+      check(`listed command ${it.name} has no runner`, typeof EX[it.name]?.run === "function");
+      check(`listed command ${it.name} has no description`, !!it.sub);
+    }
 
     // A page focusing its own field must not pull us into insert mode.
     setMode("normal");

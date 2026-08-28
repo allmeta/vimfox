@@ -62,6 +62,26 @@ addMessageListener("VimFox:Mode", (msg) => {
   swallowKeys = msg.data.mode === "normal";
 });
 
+// Keys normal mode does NOT swallow.
+//
+// Scrolling: we bind no arrows, so scrolling them is the page's own default
+// action. Swallowing them just meant nothing scrolled.
+//
+// Function keys and Ctrl+Shift chords: these are Firefox's, and unlike ours
+// they are NOT reserved — a non-reserved chrome key is processed AFTER content,
+// so preventDefault here killed them outright. That is why F12 and
+// Ctrl+Shift+C did nothing in normal mode.
+const SCROLL_KEYS = new Set([
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+  "PageUp", "PageDown", "Home", "End", " ",
+]);
+
+function passThrough(e) {
+  if (/^F\d{1,2}$/.test(e.key)) return true;
+  if (e.ctrlKey && e.shiftKey && !e.altKey) return true;
+  return SCROLL_KEYS.has(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey;
+}
+
 // Registered after markGesture so that still runs; stopImmediatePropagation
 // only blocks listeners added after this one, which is every page script,
 // since actor scripts run at DOMWindowCreated.
@@ -70,6 +90,7 @@ for (const type of ["keydown", "keypress", "keyup"]) {
     type,
     (e) => {
       if (!swallowKeys) return;
+      if (passThrough(e)) return;
       e.preventDefault();
       e.stopImmediatePropagation();
     },

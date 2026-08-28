@@ -104,8 +104,34 @@ leaves insert strands you.
 ## Normal mode swallows everything
 
 Content kills keydown/keypress/keyup. Mode is broadcast; new frames send
-`VimFox:Ready` to ask. Consequence: arrows/space/PageDown don't scroll.
-Allowlist in `child.js` if wanted.
+`VimFox:Ready` to ask.
+
+`passThrough()` in `child.js` is the allowlist. Two separate reasons for it:
+
+- Arrows/space/PageUp/Down: we bind none of them, so scrolling is the page's
+  own default action. Swallowing them just meant nothing scrolled.
+- F-keys and Ctrl+Shift chords: these are FIREFOX's keys and, unlike ours, are
+  NOT `reserved` — a non-reserved chrome key is processed AFTER content, so a
+  `preventDefault` in the frame script kills it outright. That is why F12 and
+  Ctrl+Shift+C did nothing in normal mode.
+
+## The layout fallback
+
+XUL matches key+modifiers strictly against the character the LAYOUT produces,
+and `SHIFTED` is guesswork about which physical key carries `:` or `$`. On a
+Norwegian keyboard the `$` guess is wrong (it is AltGr+4, not Shift+4) and `g$`
+never fired.
+
+Rather than keep adding candidates, the window keydown capture listener notices
+when the keyset produced nothing and dispatches. It is a FALLBACK, never the
+primary path — the keyset is `reserved` and beats a hung content process, which
+is the whole reason the project exists. Dedup is a token: the capture listener
+bumps `keyToken`, `dispatch()` stamps `keyHandledToken`, and a `setTimeout(0)`
+runs only if the stamp never arrived (the XUL key handler is in the system
+group, so it fires after the capture listener but before the timeout).
+
+Escape and Shift-Escape are excluded on purpose: their XUL keys are disabled
+most of the time BY DESIGN, and a fallback would undo exactly that.
 
 ## Omnibar
 
@@ -162,6 +188,20 @@ it look native. Contained by:
 `#populateSlots` MOVES `[urlbar-slot]` children into place then deletes the
 slot elements — slots are construction-time only, useless to us. window.js runs
 on the window `load` event, so the row already exists; no retry needed.
+
+## CSS traps in the injected stylesheet
+
+- It lives in a JS TEMPLATE LITERAL. A backtick in a CSS comment ends the
+  string and window.js dies with `SyntaxError: unexpected token`, which looks
+  exactly like vimfox not being installed. `node --check window.js` catches it
+  in a second.
+- `light-dark()` nested inside `color-mix()` computes to TRANSPARENT. Use plain
+  hex under a `prefers-color-scheme` media query. The failure is silent: the
+  chip's own `color` kept working while the toolbar tint vanished.
+- A `var()` in `color-mix()`'s percentage slot also resolved to 0%. Literal.
+- `getComputedStyle` mid-transition returns the value being animated FROM. The
+  self-test sets `transition: none` before measuring the tint, or it asserts
+  the previous mode's colour.
 
 ## Self-test
 

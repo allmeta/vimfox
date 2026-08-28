@@ -95,7 +95,10 @@ Three things fall out of that design and are worth knowing before changing it:
 | `i` `Esc` | insert / normal mode |
 | `C-v` | passthrough (leave with `Shift-Esc`) |
 | `C-w` | delete word (vim word classes, works everywhere) |
-| `:` | command line — `open`, `tabopen`, `q`, `reload`, `restart` |
+| `^` `gl` | last used tab (`^` is a dead key on Nordic layouts) |
+| `wn` `wp` | new window / new private window |
+| `3j` `5J` | counts repeat a command; `Esc` throws the buffer away |
+| `:` | command menu — every command listed and filtered as you type |
 
 ## Omnibar
 
@@ -114,8 +117,7 @@ reproduce frecency ordering.
 - No link hints (`f`). Cross-origin iframes under Fission need parent-side hint
   allocation across processes; it is a project of its own.
 - No marks, quickmarks, or `.` repeat.
-- Arrows, space and PageUp/Down do not scroll in normal mode — normal mode
-  swallows every key the page would otherwise see. An allowlist in `child.js`
-  would bring them back.
-- `g$` and `+` are bound for several keyboard layouts but only tested on one.
+- Counts just run a command N times. Right for every motion here; a command
+  wanting the number itself (vim's `42G`) would have to read it instead.
+- No open-tab results in the `o` omnibar, and no per-engine search keywords.
 - Paths are hardcoded to `/home/thomal`.

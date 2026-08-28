@@ -33,3 +33,12 @@ user_pref("browser.aboutwelcome.enabled", false);
 user_pref("sidebar.revamp", true);
 user_pref("sidebar.verticalTabs", true);
 user_pref("sidebar.visibility", "always-show");
+
+// Strip stays expanded: there is no "expanded" pref, the launcher state is a
+// blob Firefox rewrites on shutdown, so pin it here. expandOnHover would
+// collapse it back to icons the moment the pointer leaves.
+user_pref("sidebar.expandOnHover", false);
+user_pref(
+  "sidebar.backupState",
+  '{"command":"","panelOpen":false,"bookmarksExpandedFolders":[],"launcherWidth":200,"launcherExpanded":true,"launcherVisible":true}'
+);
