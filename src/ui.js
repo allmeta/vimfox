@@ -9,7 +9,7 @@
 "use strict";
 
 this.vimfoxUI = (vf) => {
-  const { win, document, HTML, log, SEQUENCES, LABELS, TOAST_MS } = vf;
+  const { win, document, HTML, log, TOAST_MS } = vf;
 
   // Mode indicator. Lives INSIDE the address bar's input row, as a sibling of
   // Firefox's own search-mode chip (#urlbar-search-mode-indicator), so it
@@ -151,7 +151,7 @@ this.vimfoxUI = (vf) => {
       element: box,
       // Rows are built per prefix, so adding a sequence needs no work here.
       show(prefix) {
-        const table = SEQUENCES[prefix];
+        const table = vf.SEQUENCES[prefix];
         if (!table) return;
         box.textContent = "";
         for (const [key, cmd] of Object.entries(table)) {
@@ -159,7 +159,7 @@ this.vimfoxUI = (vf) => {
           const k = document.createElementNS(HTML, "b");
           k.textContent = prefix + key;
           const d = document.createElementNS(HTML, "span");
-          d.textContent = LABELS[cmd] ?? cmd;
+          d.textContent = vf.LABELS[cmd] ?? cmd;
           row.append(k, d);
           box.append(row);
         }

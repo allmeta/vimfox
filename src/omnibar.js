@@ -15,8 +15,60 @@
 this.vimfoxOmnibar = (vf) => {
   const {
     win, document, gBrowser, HTML, log, PlacesUtils,
-    setMode, runEx, highlight, shortenUrl, deleteLineIn,
+    setMode, runEx, deleteLineIn,
   } = vf;
+
+  // Wrap query matches in <span class="match">, which Vimium's CSS renders
+  // bold (and white in dark mode). Built from DOM nodes, never innerHTML —
+  // this is a chrome document and titles/URLs are untrusted text.
+  function highlight(parent, text, tokens) {
+    parent.textContent = "";
+    const lower = text.toLowerCase();
+
+    const hits = [];
+    for (const t of tokens) {
+      for (let i = lower.indexOf(t); i !== -1; i = lower.indexOf(t, i + t.length)) {
+        hits.push([i, i + t.length]);
+      }
+    }
+
+    if (!hits.length) {
+      parent.textContent = text;
+      return;
+    }
+
+    // Overlapping tokens ("git" and "hub" in "github") must not produce
+    // nested or duplicated spans, so merge the ranges first.
+    hits.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const [s, e] of hits) {
+      const last = merged[merged.length - 1];
+      if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+      else merged.push([s, e]);
+    }
+
+    let pos = 0;
+    for (const [s, e] of merged) {
+      if (s > pos) parent.append(text.slice(pos, s));
+      const m = document.createElementNS(HTML, "span");
+      m.className = "match";
+      m.textContent = text.slice(s, e);
+      parent.append(m);
+      pos = e;
+    }
+    if (pos < text.length) parent.append(text.slice(pos));
+  }
+
+  // Vimium's Suggestion.shortenUrl: decode and lowercase for display. Its
+  // Google-specific query-param stripping is omitted — niche cleanup, and it
+  // only ever applies to google.com result URLs.
+  function shortenUrl(url) {
+    try {
+      return decodeURI(url).toLowerCase();
+    } catch {
+      return url.toLowerCase();
+    }
+  }
 
   // ------------------------------------------------------------ data ---
 
@@ -632,7 +684,8 @@ this.vimfoxOmnibar = (vf) => {
     openInput,
     listTabs,
     listBookmarks,
-    // Exported for the self-test; the ranking is pure and worth checking.
+    // Exported for the self-test; these are pure and worth checking.
+    highlight,
     computeRelevancy,
     matchesAllTerms,
     DOMAIN_RELEVANCY,

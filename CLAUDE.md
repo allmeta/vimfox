@@ -10,7 +10,18 @@ autoconfig.cfg (root, /usr/lib/firefox)
        ├─ resource://vimfox/  → ~/.vimfox   (PARENT ONLY)
        ├─ child.js  read by parent, shipped to content as data: URI
        └─ window.js loaded per browser.xhtml window
+            └─ src/{ui,omnibar,commands,keyset,selftest}.js
 ```
+
+Each `src/` part is a factory over one shared context object, loaded with
+`loadSubScript` into a throwaway scope — `resource://vimfox/` resolves in the
+PARENT process, which is where all of this runs.
+
+Load order is ui → omnibar → commands → keyset, and it matters: **destructuring
+a context object READS its getters**. Anything that could be circular is left on
+`vf` and read at call time instead — `vf.toast` and `vf.palette` in commands,
+`vf.SEQUENCES` and `vf.LABELS` in ui. ui needs the binding tables from commands,
+and commands needs ui's toast; lazy on both sides is what breaks the cycle.
 
 Mode lives in the parent. Parent is authoritative. Content only reports focus.
 

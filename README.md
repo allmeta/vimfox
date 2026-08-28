@@ -15,7 +15,8 @@ tab — the same path `Ctrl+W` takes.
 | file | role |
 |---|---|
 | `boot.js` | AutoConfig entry point: `resource://vimfox/`, frame script, per-window hookup |
-| `window.js` | parent process — MODES state machine, dispatch, commands, wiring |
+| `window.js` | parent process — MODES state machine, dispatch, ex commands, wiring |
+| `src/commands.js` | what the keys do, and the tables mapping keys to them |
 | `src/keyset.js` | XUL `<key>` elements and the collision war with Firefox's own |
 | `src/omnibar.js` | palette for `o` / `:` / `gt` / `b`, and Vimium's ranking |
 | `src/ui.js` | mode chip, which-key, toast, injected stylesheet |
