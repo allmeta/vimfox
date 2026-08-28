@@ -43,6 +43,64 @@ this.vimfoxSelfTest = (vf) => {
     check(`prefix "${prefix}" is also a direct binding`, !BINDINGS[prefix]);
   }
 
+  // `typeof cmds[x] === "function"` is true of a command whose BODY throws, and
+  // that false confidence is exactly how deleteWord and findAgain shipped dead:
+  // both referenced a helper the module was never passed, so every use was a
+  // ReferenceError swallowed by run()'s catch. So actually CALL the ones that
+  // are safe to run headlessly, and fail on a throw.
+  //
+  // Excluded are the commands with side effects a test must not have: anything
+  // that navigates, opens a window or palette, closes or moves tabs, or writes
+  // the clipboard. Everything else must survive being invoked.
+  const UNSAFE_TO_CALL = new Set([
+    "tabClose", "tabUndo", "tabClone", "tabNew", "back", "forward", "reload",
+    "open", "openTab", "editUrl", "commandLine", "bookmarks", "bookmarksTab",
+    "tabSelect", "bookmarkPage", "openClipboard", "openClipboardTab",
+    "windowNew", "windowPrivate", "restart", "passthrough", "insertMode",
+    "caretMode", "tabAlternate", "urlUp", "urlUpTab", "tabMoveLeft",
+    "tabMoveRight", "tabFirst", "tabLast", "tabPrev", "tabNext", "tabMute",
+    "yankUrl", "yankTitle", "yankDomain", "yankPretty", "yankMarkdown",
+    "copySelection", "find", "findLinks", "zoomIn", "zoomOut", "zoomReset",
+    "focusInput", "deleteWord",
+  ]);
+  for (const [name, fn] of Object.entries(cmds)) {
+    if (UNSAFE_TO_CALL.has(name) || /^tabFocus/.test(name)) continue;
+    let threw = null;
+    try {
+      fn();
+    } catch (ex) {
+      threw = ex;
+    }
+    check(`cmds.${name} threw: ${threw}`, !threw);
+  }
+  // deleteWord and findAgain are the two that actually broke, so call them
+  // explicitly against harmless targets rather than skipping them entirely.
+  {
+    const probe = document.createElementNS(HTML, "input");
+    document.documentElement.append(probe);
+    probe.value = "one two";
+    probe.focus();
+    probe.setSelectionRange(7, 7);
+    let threw = null;
+    try {
+      deleteWordIn(probe);
+    } catch (ex) {
+      threw = ex;
+    }
+    check(`deleteWordIn threw: ${threw}`, !threw);
+    check(`deleteWordIn did nothing (${probe.value})`, probe.value === "one ");
+    probe.remove();
+  }
+  for (const name of ["findNext", "findPrev"]) {
+    let threw = null;
+    try {
+      cmds[name]();
+    } catch (ex) {
+      threw = ex;
+    }
+    check(`cmds.${name} threw: ${threw}`, !threw);
+  }
+
   check("keyset not in document", keyset.element.isConnected);
   check("command bar missing", !!document.getElementById("vomnibar"));
   check(
@@ -271,7 +329,13 @@ this.vimfoxSelfTest = (vf) => {
     Services.prefs.getBoolPref(CARET_PREF, false)
   );
   setMode("normal");
-  check("browse-with-caret not restored on leaving caret mode", vf.caretPrefWas === null);
+  // Assert the PREF, not the bookkeeping variable. The old check read
+  // caretPrefWas === null and passed happily on a profile where the pref had
+  // been leaked to true and stayed there.
+  check(
+    "browse-with-caret not restored on leaving caret mode",
+    Services.prefs.getBoolPref(CARET_PREF, false) === false
+  );
   // Unmapped keys must fall through, or caret mode traps you.
   setMode("caret");
   check("caret mode swallowed an unmapped key", caretKey("x") === false);
@@ -460,12 +524,21 @@ this.vimfoxSelfTest = (vf) => {
     "built-ins not re-suppressed in normal mode",
     keyset.builtinsNormal.every((k) => k.hasAttribute("disabled"))
   );
+  // ALWAYS_ON: C-w must stay live in insert mode, which is the whole point of
+  // it — deleting a word matters most while typing. The old version of this
+  // check ran in normal mode and asserted the opposite of its own name.
+  setMode("insert");
   check(
-    "C-w disabled in insert mode",
+    "C-w not live in insert mode",
     !keyset.element
       .querySelector('key[key="w"][modifiers="accel"]')
       ?.hasAttribute("disabled")
   );
+  check(
+    "key_close revived in insert mode (C-w is ALWAYS_ON, its twin stays dead)",
+    document.getElementById("key_close")?.hasAttribute("disabled")
+  );
+  setMode("normal");
 
   // Word-deletion logic, independent of focus resolution.
   const probe = document.createElementNS(HTML, "input");

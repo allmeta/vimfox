@@ -285,6 +285,9 @@
     // fields; this covers the browser UI, with no IPC involved.
     if (chromeInputFocused() && !CHROME_INPUT_OK.has(name)) {
       const el = focusedChromeElement();
+      // Drop the count too: it would otherwise apply to whatever command comes
+      // next, and `x` is destructive.
+      takeCount();
       log(
         `suppressed ${name}: chrome field focused ` +
           `<${el?.localName}${el?.id ? ` id=${el.id}` : ""}>`
@@ -319,6 +322,12 @@
   function keyNameFor(e) {
     if (e.key === "Escape") return e.shiftKey ? "Shift-Escape" : "Escape";
     if (e.key.length !== 1) return null; // F-keys, arrows, modifiers alone
+    // Shift must be rejected, not ignored. Gecko refuses to ignore it for
+    // letters (IsCaseChangeableChar) and the keyset honours that — but this
+    // function feeds the layout fallback, which bypasses the keyset entirely.
+    // Ctrl+Shift+V gives e.key "V", lowercased to "C-v", and the fallback then
+    // dispatched passthrough. Same for Ctrl+Shift+W / U / D.
+    if (e.shiftKey && (e.ctrlKey || e.altKey)) return null;
     if (e.ctrlKey && !e.altKey) return `C-${e.key.toLowerCase()}`;
     if (e.altKey && !e.ctrlKey) return `A-${e.key.toLowerCase()}`;
     if (e.ctrlKey || e.altKey || e.metaKey) return null;
@@ -446,6 +455,9 @@
       // selectionchange then walks us back to normal.
       if (mode === "caret") {
         send("VimFox:ClearSelection");
+        // Cleared optimistically: content reports transitions only, so a frame
+        // with no selection sends nothing back and this would stay true.
+        contentSelected = false;
         setMode("normal");
         return;
       }
@@ -539,6 +551,11 @@
     Services.scriptloader.loadSubScript("resource://vimfox/src/commands.js", scope);
     return scope.vimfoxCommands({
       win, document, gBrowser, log, send, deleteWordIn,
+      // Plain references, not getters: these are window.js's own helpers and
+      // nothing here is circular. Leaving them out made cmds.deleteWord and
+      // findAgain throw ReferenceError on every use — Ctrl+W and n/N were dead,
+      // and because C-w is ALWAYS_ON it had also permanently killed key_close.
+      chromeField, focusedFindbar,
       SCROLL_LINES, SCROLL_STEP_X, TAB_DIGITS,
       setMode: (m) => setMode(m),
       get toast() {
@@ -600,7 +617,14 @@
     const [cmd, ...rest] = line.trim().split(/\s+/);
     const entry = EX[cmd];
     if (!entry) return log(`unknown command: ${cmd}`);
-    entry.run(rest.join(" "));
+    // A throw here used to escape accept(), so close() never ran and the
+    // palette stayed open in `command` mode — which is sticky, so refreshMode
+    // refused to leave it. `:open` with no URL did exactly that.
+    try {
+      entry.run(rest.join(" "));
+    } catch (ex) {
+      log(`:${cmd} failed: ${ex}`);
+    }
   }
 
   // Every command, shown the moment `:` opens and filtered as you type — the
@@ -624,7 +648,12 @@
       return mode;
     },
     destroy() {
+      // browse-with-caret is a GLOBAL pref and destroy() is the only path out
+      // of caret mode that setMode does not cover. Closing the window with a
+      // selection alive used to persist it as true, permanently.
+      armCaret(false);
       win.messageManager.removeMessageListener("VimFox:Focus", onFocusMsg);
+      win.messageManager.removeMessageListener("VimFox:Ready", onReadyMsg);
       win.messageManager.removeMessageListener("VimFox:Selection", onSelectionMsg);
       keyset.destroy();
       palette.destroy();
@@ -664,6 +693,10 @@
     if (e.detail?.previousTab) lastTab = e.detail.previousTab;
     if (now().sticky) return;
     contentEditable = false;
+    // The new tab has its own selection state, and content only reports
+    // TRANSITIONS — so a stale true here put the new tab straight back into
+    // caret mode on the focus event that follows, with no way out.
+    contentSelected = false;
     setMode("normal");
 
     // Firefox focuses the urlbar for about:newtab, and it does so AFTER
@@ -694,7 +727,10 @@
       // every binding died the moment such a page took focus. Remote pages
       // target the <browser> element instead, so they never reach this branch
       // and cannot be double-handled.
-      if (mode === "normal" && e.target && e.target.ownerDocument !== document) {
+      // now().keys, not a hardcoded mode: in caret mode this branch was skipped,
+      // so the key was dispatched by the fallback below but never suppressed —
+      // it reached the page as well.
+      if (now().keys && e.target && e.target.ownerDocument !== document) {
         e.preventDefault();
         e.stopImmediatePropagation();
         const name = keyNameFor(e);

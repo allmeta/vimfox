@@ -15,6 +15,8 @@
 this.vimfoxCommands = (vf) => {
   const {
     win, document, gBrowser, log, send, deleteWordIn,
+    chromeField, focusedFindbar,
+
     SCROLL_LINES, SCROLL_STEP_X, TAB_DIGITS,
     setMode,
   } = vf;

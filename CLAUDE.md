@@ -258,7 +258,10 @@ overrides live in `window.js`, not that file.
 
 - `<body>` in browser.xhtml is `display:flex; flex-direction:column`, with
   `#navigator-toolbox` and `#browser` as plain siblings. `order: 1` on the
-  toolbox is the ENTIRE bottom-bar change. No reparenting.
+  toolbox is the ENTIRE bottom-bar change. No reparenting. It currently ships
+  COMMENTED OUT in `src/ui.js` — the address bar is at the top. Uncomment to
+  move it; nothing else needs to change, because `updateChromeInset()` measures
+  which edge the toolbox occupies instead of assuming.
 - Vertical tabs are Firefox's own: `sidebar.revamp` + `sidebar.verticalTabs`.
   `sidebar.visibility` must ALSO be `always-show` — the profile had it at
   `hide-sidebar`, which leaves the strip on but invisible, and looks exactly
@@ -298,6 +301,20 @@ on the window `load` event, so the row already exists; no retry needed.
 - `getComputedStyle` mid-transition returns the value being animated FROM. The
   self-test sets `transition: none` before measuring the tint, or it asserts
   the previous mode's colour.
+
+## Module seams
+
+`loadSubScript(url, {})` gives a module the CHROME WINDOW as its global, never
+window.js's closure. A helper window.js forgot to pass therefore resolves to
+`undefined` and throws ReferenceError at CALL time — swallowed by `run()`'s
+catch into a `dump()` nobody reads. `chromeField` and `focusedFindbar` shipped
+that way and killed Ctrl+W and `n`/`N`.
+
+`typeof cmds[x] === "function"` does NOT catch this: it is true of a command
+whose body throws. The self-test therefore CALLS every command that is safe to
+run headlessly and fails on a throw. Keep `UNSAFE_TO_CALL` honest — anything
+that navigates, opens a window, or writes the clipboard belongs in it, and
+everything else must survive being invoked.
 
 ## Self-test
 

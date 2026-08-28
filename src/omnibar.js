@@ -397,6 +397,7 @@ this.vimfoxOmnibar = (vf) => {
     let kind = "ex";
     let where = "current";
     let lookupToken = 0;
+    let openToken = 0;
     // Vimium's initialSelectionValue: -1 for the omni completer, so nothing is
     // selected until you Tab and Enter uses exactly what you typed. The tab and
     // bookmark palettes have no meaningful "raw text" action, so they start at 0.
@@ -641,6 +642,11 @@ this.vimfoxOmnibar = (vf) => {
 
     return {
       async open(k, source, dest, prefill) {
+        // Same guard lookup() has. Without it, opening `b` (a Places query that
+        // can take a while cold), closing it, and opening `gt` before it
+        // resolves let the bookmark results land in the tab palette — where
+        // accept() calls choice.pick() on an object that has no pick.
+        const token = ++openToken;
         kind = k;
         where = dest ?? "current";
         initialSel = k === "open" || k === "ex" ? -1 : 0;
@@ -662,7 +668,9 @@ this.vimfoxOmnibar = (vf) => {
         input.setSelectionRange(input.value.length, input.value.length);
 
         if (source) {
-          items = typeof source.then === "function" ? await source : source;
+          const rows = typeof source.then === "function" ? await source : source;
+          if (token !== openToken) return;
+          items = rows;
           filter();
         } else if (input.value) {
           filter(); // ge prefills a URL; show matches for it straight away
