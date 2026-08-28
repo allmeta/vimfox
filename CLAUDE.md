@@ -246,8 +246,16 @@ kills middle-click-to-close on every tab, so it uses no ambient globals
 event instance) and is wrapped in try/catch.
 
 `handleEvent` looks up `this["on_" + type]` at dispatch time, so reassigning
-`on_click` does take effect. But `_pinnedMclickPatched` reads false in a fresh
-window, so the patch is not currently applying at all — unresolved.
+`on_click` does take effect.
+
+Two things that cost real time here:
+
+- `system/` is only a SOURCE copy. Editing `autoconfig.cfg` in the repo changes
+  nothing until `sudo system/install.sh` runs. Testing an autoconfig change
+  without reinstalling measures the OLD file.
+- `_pinnedMclickPatched` reads false during the self-test, which runs before
+  the patch's own `load` listener. That is a timing artifact, NOT evidence the
+  patch is missing — it misled a whole diagnosis. Do not conclude from it.
 
 ## tabbrowser API drift
 
@@ -256,6 +264,12 @@ FF152. A bare number destructures to `undefined` and the call is a SILENT
 no-op — no throw, no log, the tab just does not move. Assume any other
 `gBrowser` call can go the same way, and prefer a self-test that observes the
 effect over one that only checks the call happened.
+
+`discardBrowser(tab, force)` needs `force = true` — what Firefox's own "Unload
+tab" passes. Without it the browser IS discarded but never gets the
+`[discarded]` attribute, so the tab still looks loaded and the thing reads as
+broken; it also refuses outright if the tab has an open dialog. It is always a
+no-op on the SELECTED tab (`_mayDiscardBrowser` bails on `aTab.selected`).
 
 ## Fragile
 
