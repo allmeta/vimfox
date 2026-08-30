@@ -131,7 +131,12 @@
   //   exit     Shift-Escape is armed as the way out
   const MODES = {
     normal:      { keys: true,  escape: false, swallow: true },
-    caret:       { keys: true,  escape: true,  swallow: true },
+    // holdFocus: the page moving focus does not leave this mode. Gecko's caret
+    // browsing focuses links and buttons as the caret passes over them, and
+    // every one of those used to throw you straight back to normal mid-motion.
+    // qutebrowser leaves caret mode only on c / Escape / yank, and so do we —
+    // plus a tab switch, which `sticky` (below) deliberately does NOT cover.
+    caret:       { keys: true,  escape: true,  swallow: true, holdFocus: true },
     insert:      { keys: false, escape: true,  swallow: false },
     command:     { keys: false, escape: false, swallow: false, sticky: true },
     passthrough: { keys: false, escape: false, swallow: false, sticky: true, exit: true },
@@ -144,6 +149,7 @@
   let lastTab = null; // the tab `^` goes back to
   let contentSelected = false; // page has a non-empty selection
   let caretSelecting = false; // caret motions extend the selection (`v`)
+  let caretFromSelection = false; // entered caret by selecting, not by `v`
   let pendingTimer = 0;
   let whichKeyTimer = 0;
 
@@ -185,10 +191,12 @@
         // Entering via a mouse selection arrives with one already made; via `v`
         // it does not, and motions should then just move the caret.
         caretSelecting = contentSelected;
+        caretFromSelection = contentSelected;
       } else {
         if (caretPrefWas !== null) Services.prefs.setBoolPref(CARET_PREF, caretPrefWas);
         caretPrefWas = null;
         caretSelecting = false;
+        caretFromSelection = false;
       }
     } catch (ex) {
       log(`caret pref failed: ${ex}`);
@@ -253,19 +261,22 @@
     // The palette owns the keyboard; passthrough is only left deliberately.
     if (now().sticky) return;
     const editing = chromeInputFocused() || contentEditable;
-    // A live selection holds caret mode. Focus events fire constantly while
-    // dragging one out, and without this every one of them would drop us back
-    // to normal before `y` could ever be pressed.
-    if (!editing && contentSelected) return setMode("caret");
-    setMode(editing ? "insert" : "normal");
+    // A text field always wins, even over holdFocus: the urlbar with our keyset
+    // still live would eat the keystrokes instead of typing them.
+    if (editing) return setMode("insert");
+    if (now().holdFocus) return;
+    setMode("normal");
   }
 
   // Content reports only the has/has-not transition; the text itself never
   // crosses the process boundary — cmd_copy runs where the selection lives.
   function onContentSelection(has) {
     contentSelected = has;
-    if (has && mode === "normal") setMode("caret");
-    else if (!has && mode === "caret") setMode("normal");
+    if (has && mode === "normal") return setMode("caret");
+    // Losing the selection only leaves caret mode if the selection is what put
+    // us there. Entering deliberately with `v` is qutebrowser's caret mode:
+    // dropping the selection keeps the caret, it does not exit.
+    if (!has && mode === "caret" && caretFromSelection) setMode("normal");
   }
 
   // Only elements of the chrome document count. Pages like about:sessionrestore

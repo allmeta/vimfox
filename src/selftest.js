@@ -298,6 +298,47 @@ this.vimfoxSelfTest = (vf) => {
   setPending(null);
   check("caret mode has no chip colour", chromeStyle.textContent.includes('mode="caret"'));
 
+  // Caret mode's EXITS, copied from qutebrowser: it is left deliberately, never
+  // by the page. Gecko's caret browsing focuses links and buttons as the caret
+  // passes them, and each of those fires our focus listener.
+  setMode("normal");
+  onContentSelection(true);
+  check(`selection did not enter caret (mode=${vf.mode})`, vf.mode === "caret");
+  // A link taking focus mid-motion must NOT throw us out.
+  vf.contentEditable = false;
+  refreshMode();
+  check(`focus change left caret mode (mode=${vf.mode})`, vf.mode === "caret");
+  onContentFocus(false, false);
+  check(`content focus report left caret mode (mode=${vf.mode})`, vf.mode === "caret");
+  // ...but a text field still wins, or the urlbar would eat keystrokes.
+  vf.contentEditable = true;
+  refreshMode();
+  check(`an editable did not beat holdFocus (mode=${vf.mode})`, vf.mode === "insert");
+  vf.contentEditable = false;
+  onContentSelection(false);
+  setMode("normal");
+
+  // Entered by selecting: losing the selection exits.
+  onContentSelection(true);
+  check("selection entry did not arm caretFromSelection", vf.caretSelecting === true);
+  onContentSelection(false);
+  check(`losing the selection did not exit caret (mode=${vf.mode})`, vf.mode === "normal");
+
+  // Entered with `v`: losing a selection must NOT exit — that is
+  // selection-drop, which qutebrowser keeps you in caret mode for.
+  setMode("caret");
+  check(`v did not enter caret (mode=${vf.mode})`, vf.mode === "caret");
+  onContentSelection(true);
+  onContentSelection(false);
+  check(`selection-drop exited caret after v (mode=${vf.mode})`, vf.mode === "caret");
+  setMode("normal");
+
+  // A tab switch DOES exit: caret is holdFocus, deliberately not sticky.
+  check(
+    "caret mode is sticky — a tab switch would not leave it",
+    !MODES.caret.sticky && MODES.caret.holdFocus
+  );
+
   // Caret motions. Every pair must be [move, select] — a swapped pair would
   // extend the selection when it should only move the caret, and the two
   // differ by one word in the command name, so it is easy to get wrong.
