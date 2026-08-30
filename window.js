@@ -503,7 +503,11 @@
       const table = SEQUENCES[pending];
       setPending(null);
       const cmd = table?.[keyName];
+      // `3gz` — a prefix followed by nothing. run() would have eaten the count;
+      // without it the 3 survives onto whatever you press next, and `x` is
+      // destructive.
       if (cmd) run(cmd);
+      else takeCount();
       return;
     }
 
@@ -516,7 +520,8 @@
     }
 
     if (SEQUENCES[keyName]) {
-      if (!chromeInputFocused()) setPending(keyName);
+      if (chromeInputFocused()) takeCount();
+      else setPending(keyName);
       return;
     }
     const cmd = BINDINGS[keyName];

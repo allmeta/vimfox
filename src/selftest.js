@@ -213,6 +213,12 @@ this.vimfoxSelfTest = (vf) => {
   dispatch("3");
   check("takeCount did not read the buffer", takeCount() === 3);
   check(`count not cleared after use (count=${vf.count})`, vf.count === "");
+  // A count must never survive onto the next command — `x` is destructive.
+  focusedChromeElement()?.blur?.();
+  dispatch("3");
+  dispatch("g");
+  dispatch("z"); // `g` has no `z`
+  check(`count survived an unmatched sequence (count=${vf.count})`, vf.count === "");
   // A leading 0 is g0's key, never a count.
   dispatch("0");
   check(`leading 0 started a count (count=${vf.count})`, vf.count === "");

@@ -25,6 +25,87 @@ and commands needs ui's toast; lazy on both sides is what breaks the cycle.
 
 Mode lives in the parent. Parent is authoritative. Content only reports focus.
 
+## Where things live
+
+| file | what it owns | do NOT put here |
+|---|---|---|
+| `window.js` | MODES table, `setMode`/`dispatch`/`run`/counts, focus reconciliation, the ex table, all wiring and listeners | anything a keypress *does* |
+| `src/commands.js` | `cmds` bodies, `BINDINGS`/`SEQUENCES`/`CARET_MOTIONS`/`LABELS`, tab and scroll helpers | mode decisions; it must not know what mode it is |
+| `src/keyset.js` | `<key>` elements, layout matching, built-in collision pairing | anything about what a key *means* |
+| `src/omnibar.js` | palette DOM and behaviour, Places queries, Vimium ranking, `highlight`/`shortenUrl`/`openInput` | anything not the palette |
+| `src/ui.js` | chip, which-key, toast, injected stylesheet, `paintMode` | reading the mode — it is TOLD, via `paintMode` |
+| `src/selftest.js` | every assertion | anything the product needs at runtime |
+| `child.js` | content: focus + selection reporting, key swallowing, `gi`, horizontal scroll | any mode logic; it is told `swallow`, it does not decide |
+| `boot.js` | `resource://` registration, frame script, per-window attach | features |
+| `system/` | the two root-owned files. **Editing these does nothing until `sudo system/install.sh`** | |
+
+Rough sizes: window.js ~840, omnibar ~700, selftest ~740, commands ~430,
+child ~325, ui ~230, keyset ~225. Nothing should grow past ~800 without being
+split; that is what made the first refactor necessary.
+
+## Adding things
+
+- **A binding**: `cmds` entry + `BINDINGS`/`SEQUENCES` row + `LABELS` row, all in
+  `src/commands.js`. The self-test checks all three agree AND calls the command.
+- **A caret key**: `CARET_MOTIONS` if it is a motion (a `[move, select]` PAIR),
+  else an arm in `caretKey` in window.js, and add it to `CARET_EXTRA` or the
+  layout fallback will not fire for it.
+- **A mode**: one `MODES` row, plus an accent colour in `ui.js`. The self-test
+  fails if you do only one.
+- **An ex command**: the `EX` table in window.js. It is a SEPARATE system from
+  `cmds` — see the open items below.
+
+## Open — known broken or missing
+
+Ordered by how much they bite. Nothing here is subtle; these are all known.
+
+**Correctness**
+
+- `keyset.destroy()` removes our keyset but leaves every built-in it suppressed
+  still `disabled`. Moot on unload, wrong if `destroy()` is ever called for
+  anything else.
+- Caret mode does not exit on same-tab navigation. Tab switch exits, `c`/Escape
+  /`y` exit, but loading a new page in the same tab leaves you in caret with no
+  caret. qutebrowser resets mode on load; we have no location-change listener.
+- `send()` targets `gBrowser.selectedBrowser.messageManager`, which reaches only
+  the TOP-LEVEL frame. `VimFox:ClearSelection` and `VimFox:ScrollX` never arrive
+  in an iframe, so a selection made inside one cannot be cleared from the parent.
+
+**Missing features**
+
+- No link hints (`f`). Cross-origin iframes under Fission need parent-side hint
+  allocation; it is a project of its own and the largest single gap.
+- Caret mode lacks `e`, `V`, and qutebrowser's four `[`/`]` block motions. Gecko
+  has no command for any of them — only the paragraph pair `{`/`}`. Each needs
+  hand-written content JS.
+- No marks, quickmarks, or `.` repeat.
+- The `o` omnibar does not offer open tabs, and there are no per-engine search
+  keywords (`:open g foo`).
+- Paths are hardcoded to `/home/thomal` in `boot.js` and `autoconfig.cfg`.
+
+**Structural, in the order that would pay off**
+
+1. **Nothing validates the context object.** A helper window.js forgets to pass
+   resolves to `undefined` and throws at CALL time — that is exactly how Ctrl+W
+   and `n`/`N` shipped dead. One shared `take(vf, NEEDS)` per module would make
+   it a load-time error naming the missing key.
+2. **`cmds` and `EX` are two command systems.** `:q` re-declares `cmds.tabClose`
+   with its own description. Give `cmds` entries optional `label`/`ex`/`arg`
+   metadata and derive `LABELS` and `EX` from it — then a new command is
+   bindable, discoverable in which-key, and typeable at `:` for free.
+3. `caretKey` is a switch parallel to `CARET_MOTIONS`. One table whose values are
+   a motion pair, a command name, or a function would make it one row per key and
+   let the self-test iterate it.
+4. Four hand-rolled `loadSubScript` call sites; `part()` exists and is used by
+   one of them. Unifying is also where (1) would live, once.
+5. The self-test is one long function. A two-line `group(name, fn)` would tag
+   failures with their section.
+6. Constants are threaded through the context one at a time. One `CONFIG` object
+   would shrink every destructure and is the natural seam for a real config file.
+7. **`child.js` has zero coverage.** Every assertion runs in the parent; the
+   content half — swallow allowlist, selection reporting, `gi` — is untested and
+   is the harder half to debug.
+
 ## Environment traps
 
 - `general.config.sandbox_enabled=false` REQUIRED. Else `Cc is not defined`
@@ -325,6 +406,23 @@ run headlessly and fails on a throw. Keep `UNSAFE_TO_CALL` honest — anything
 that navigates, opens a window, or writes the clipboard belongs in it, and
 everything else must survive being invoked.
 
+## What the self-test cannot see
+
+It runs in a live window and catches a lot, but three classes have bitten:
+
+- **A call that happens but does nothing.** `moveTabTo` grew an options object
+  and a bare index became a silent no-op. Assert the EFFECT (`_tPos` moved), not
+  that the call was made.
+- **A command whose body throws.** `typeof cmds[x] === "function"` is true of a
+  broken command. The suite now CALLS everything safe to run headlessly; keep
+  `UNSAFE_TO_CALL` honest or the hole reopens.
+- **An assertion that tests the bookkeeping instead of the thing.** The caret
+  pref check read `caretPrefWas === null` and passed on a profile where the pref
+  was leaked to `true`. Assert the pref, the attribute, the DOM.
+
+Whenever you fix a bug, put the bug BACK once and watch the new check fail.
+Every check added since the audit was verified that way.
+
 ## Self-test
 
 `VIMFOX_SELFTEST=1 ./run.sh about:blank` → `SELFTEST PASSED` on stdout.
@@ -333,19 +431,37 @@ Checks wiring and pure logic. Cannot check key DELIVERY. Add a case for every
 new binding and every bug fixed. It has caught real bugs (deleteWord on
 selection, trailing-whitespace regex).
 
+## Launching
+
+`run.sh` sets `MOZ_APP_REMOTINGNAME=vimfox`, which is what gives the window a
+Wayland `app_id` of `vimfox` instead of `firefox` — so a compositor rule can
+target this instance without also matching the default-profile Firefox.
+Firefox's own `--class` is X11-only. There is no Firefox flag for window size
+(`--window-size` is screenshot-only); the persisted size lives in the profile's
+`xulstore.json` and a tiling compositor overrides it anyway.
+
 ## Dev loop
 
 ```sh
+node --check window.js src/*.js child.js boot.js   # FIRST. One second, and it
+                                                  # catches the backtick-in-CSS
+                                                  # trap that kills the loader.
 pgrep -f "[f]irefox --profile /home/thomal/.vimfox"   # [f] avoids self-match
-kill <pid>; rm -f vimfox.log
+kill <pid>; sleep 3; rm -f vimfox.log
 VIMFOX_SELFTEST=1 nohup ./run.sh <url> > vimfox.log 2>&1 &
-sleep 15; grep -E "^vimfox" vimfox.log
+sleep 22; grep -E "SELFTEST" vimfox.log
 ```
 
-`pkill -f` matches your own shell. Don't.
+`pkill -f` matches your own shell. Don't. `sleep 22` because the self-test runs
+on window load and a cold profile is slow; 15 sometimes reads an empty log.
 
-Log keeps: startup checkpoints, `mode ->`, `suppressed <cmd>`. Add temporary
-logging freely; strip when done.
+Grep for `SELFTEST`, but read the whole log when something is off — a command
+that throws is logged by `run()`'s catch as `<name> failed: ...` and nothing
+else surfaces it. `findNext failed: ReferenceError` sat in the log for days.
+
+Startup on a page with text, not `about:blank`: several checks need a real
+document, and `about:blank` opens with the urlbar focused, which changes what
+`chromeInputFocused()` reports.
 
 ## Mouse
 
