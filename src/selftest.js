@@ -20,7 +20,7 @@ this.vimfoxSelfTest = (vf) => {
     cmds, keyset, palette, toast, whichKey, indicator, chromeStyle, toolbox,
     dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
     keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
-    onContentFocus, onContentSelection, listCommands, yank,
+    onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
     deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
   } = vf;
 
@@ -338,6 +338,19 @@ this.vimfoxSelfTest = (vf) => {
   onContentSelection(false);
   check(`selection-drop exited caret after v (mode=${vf.mode})`, vf.mode === "caret");
   setMode("normal");
+
+  // ...but a NAVIGATION exits, even one entered with `v`. Nothing else can
+  // notice: the selection dies with the document, so content never reports a
+  // transition, and caret mode over a fresh page has no caret to move.
+  const TOP = { isTopLevel: true };
+  const SAME_DOC = Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT;
+  setMode("caret");
+  onLocationChange(gBrowser.selectedBrowser, TOP, null, null, SAME_DOC);
+  check(`an anchor jump left caret mode (mode=${vf.mode})`, vf.mode === "caret");
+  onLocationChange(gBrowser.selectedBrowser, { isTopLevel: false }, null, null, 0);
+  check(`an iframe load left caret mode (mode=${vf.mode})`, vf.mode === "caret");
+  onLocationChange(gBrowser.selectedBrowser, TOP, null, null, 0);
+  check(`navigation did not leave caret mode (mode=${vf.mode})`, vf.mode === "normal");
 
   // A tab switch DOES exit: caret is holdFocus, deliberately not sticky.
   check(

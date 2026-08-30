@@ -538,7 +538,23 @@
     return scope;
   };
 
-  const ui = part("ui").vimfoxUI({
+  // A context key window.js forgets to pass used to resolve to `undefined` and
+  // throw at CALL time, from inside run()'s catch where nobody reads it — that
+  // is exactly how Ctrl+W and n/N shipped dead. Every context goes through
+  // here, so the destructure at the top of each module is now a LOAD-time
+  // error naming the missing key. Only keys a module actually destructures are
+  // read, so the lazy `vf.toast` / `vf.SEQUENCES` reads stay lazy.
+  const strict = (ctx) =>
+    new Proxy(ctx, {
+      get(target, key) {
+        if (!(key in target)) {
+          throw new Error(`vimfox: context is missing "${String(key)}"`);
+        }
+        return target[key];
+      },
+    });
+
+  const ui = part("ui").vimfoxUI(strict({
     win, document, HTML, log, TOAST_MS, initialMode: mode,
     // Lazy for the same reason as the tables below: which-key is created inside
     // this very module, so the toast cannot capture it at construction.
@@ -551,10 +567,10 @@
     get LABELS() {
       return LABELS;
     },
-  });
+  }));
   const { indicator, chromeStyle, toast, whichKey, toolbox, toolboxObserver } = ui;
 
-  const omnibar = part("omnibar").vimfoxOmnibar({
+  const omnibar = part("omnibar").vimfoxOmnibar(strict({
     win, document, gBrowser, HTML, log, PlacesUtils,
     setMode, deleteLineIn,
     get mode() {
@@ -563,7 +579,7 @@
     // Late-bound on purpose: the ex table below calls back into openInput,
     // which this module owns.
     runEx: (line) => runEx(line),
-  });
+  }));
   const {
     palette, openInput, listTabs, listBookmarks, highlight,
     computeRelevancy, matchesAllTerms, DOMAIN_RELEVANCY, ONE_MONTH_MS,
@@ -576,7 +592,7 @@
   const commands = (() => {
     const scope = {};
     Services.scriptloader.loadSubScript("resource://vimfox/src/commands.js", scope);
-    return scope.vimfoxCommands({
+    return scope.vimfoxCommands(strict({
       win, document, gBrowser, log, send, deleteWordIn,
       // Plain references, not getters: these are window.js's own helpers and
       // nothing here is circular. Leaving them out made cmds.deleteWord and
@@ -600,7 +616,7 @@
       get lastTab() {
         return lastTab;
       },
-    });
+    }));
   })();
   const {
     cmds, BINDINGS, SEQUENCES, CARET_MOTIONS, CARET_EXTRA, ALWAYS_ON,
@@ -614,11 +630,11 @@
   const keyset = (() => {
     const scope = {};
     Services.scriptloader.loadSubScript("resource://vimfox/src/keyset.js", scope);
-    return scope.vimfoxKeyset({
+    return scope.vimfoxKeyset(strict({
       document, log,
       dispatch: (k) => dispatch(k),
       BINDINGS, SEQUENCES, ALWAYS_ON, CARET_MOTIONS, CARET_EXTRA,
-    });
+    }));
   })();
 
 
@@ -688,6 +704,7 @@
       toast.destroy();
       toolboxObserver.disconnect();
       gBrowser.tabContainer.removeEventListener("TabSelect", onTabSelect);
+      gBrowser.removeTabsProgressListener(tabsProgress);
       win.removeEventListener("focus", refreshMode, true);
       win.removeEventListener("keydown", onWindowKeydown, true);
       // Cancels the combo and which-key timers as a side effect.
@@ -719,17 +736,25 @@
   // Switching tabs always lands in normal mode. contentEditable tracks the
   // window, not the tab, so without this you inherit the previous tab's state
   // — and a new tab whose search box autofocuses would strand you in insert.
+  // Shared by tab switch and same-tab navigation: both put a document in front
+  // of you that the current mode knows nothing about. False when the mode is
+  // sticky and nothing was done.
+  function resetForNewDocument() {
+    if (now().sticky) return false;
+    contentEditable = false;
+    // The new document has its own selection state, and content only reports
+    // TRANSITIONS — so a stale true here put it straight back into caret mode
+    // on the focus event that follows, with no way out.
+    contentSelected = false;
+    setMode("normal");
+    return true;
+  }
+
   const onTabSelect = (e) => {
     // Recorded before the early return, or `^` would forget every switch made
     // while passthrough was on.
     if (e.detail?.previousTab) lastTab = e.detail.previousTab;
-    if (now().sticky) return;
-    contentEditable = false;
-    // The new tab has its own selection state, and content only reports
-    // TRANSITIONS — so a stale true here put the new tab straight back into
-    // caret mode on the focus event that follows, with no way out.
-    contentSelected = false;
-    setMode("normal");
+    if (!resetForNewDocument()) return;
 
     // Firefox focuses the urlbar for about:newtab, and it does so AFTER
     // TabSelect — so focusing content here synchronously gets overridden.
@@ -742,6 +767,23 @@
     }, 0);
   };
   gBrowser.tabContainer.addEventListener("TabSelect", onTabSelect);
+
+  // Caret mode must not survive a navigation: the caret and the selection both
+  // die with the old document, so staying in caret leaves you in a mode with
+  // nothing to move and no way for content to tell us — it only reports
+  // selection TRANSITIONS, and there is no transition when the document goes.
+  // qutebrowser resets the mode on load for the same reason. A tab switch
+  // already did this; loading a page in the SAME tab did not.
+  const onLocationChange = (browser, webProgress, _request, _uri, flags) => {
+    if (browser !== gBrowser.selectedBrowser) return;
+    if (!webProgress?.isTopLevel) return;
+    // Anchor jumps and history.pushState keep the document, and the caret with
+    // it. Only a real document swap should move the mode.
+    if (flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT) return;
+    resetForNewDocument();
+  };
+  const tabsProgress = { onLocationChange };
+  gBrowser.addTabsProgressListener(tabsProgress);
 
   win.addEventListener("focus", refreshMode, true);
 
@@ -829,14 +871,14 @@
         "resource://vimfox/src/selftest.js",
         scope
       );
-      scope.vimfoxSelfTest({
+      scope.vimfoxSelfTest(strict({
         win, document, gBrowser, HTML, log,
         BINDINGS, SEQUENCES, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
         DOMAIN_RELEVANCY, ONE_MONTH_MS, EX, MODES,
         cmds, keyset, palette, toast, whichKey, indicator, chromeStyle, toolbox,
         dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
         keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
-        onContentFocus, onContentSelection, listCommands, yank,
+        onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
         fallbackApplies: (m) => !!MODES[m]?.keys,
         deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
         get mode() { return mode; },
@@ -846,7 +888,7 @@
         get count() { return count; },
         set count(v) { count = v; },
         set contentEditable(v) { contentEditable = v; },
-      });
+      }));
     } catch (ex) {
       log(`SELFTEST FAILED to load: ${ex}\n${ex.stack}`);
     }

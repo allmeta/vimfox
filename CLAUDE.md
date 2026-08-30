@@ -64,9 +64,6 @@ Ordered by how much they bite. Nothing here is subtle; these are all known.
 - `keyset.destroy()` removes our keyset but leaves every built-in it suppressed
   still `disabled`. Moot on unload, wrong if `destroy()` is ever called for
   anything else.
-- Caret mode does not exit on same-tab navigation. Tab switch exits, `c`/Escape
-  /`y` exit, but loading a new page in the same tab leaves you in caret with no
-  caret. qutebrowser resets mode on load; we have no location-change listener.
 - `send()` targets `gBrowser.selectedBrowser.messageManager`, which reaches only
   the TOP-LEVEL frame. `VimFox:ClearSelection` and `VimFox:ScrollX` never arrive
   in an iframe, so a selection made inside one cannot be cleared from the parent.
@@ -85,24 +82,20 @@ Ordered by how much they bite. Nothing here is subtle; these are all known.
 
 **Structural, in the order that would pay off**
 
-1. **Nothing validates the context object.** A helper window.js forgets to pass
-   resolves to `undefined` and throws at CALL time — that is exactly how Ctrl+W
-   and `n`/`N` shipped dead. One shared `take(vf, NEEDS)` per module would make
-   it a load-time error naming the missing key.
-2. **`cmds` and `EX` are two command systems.** `:q` re-declares `cmds.tabClose`
+1. **`cmds` and `EX` are two command systems.** `:q` re-declares `cmds.tabClose`
    with its own description. Give `cmds` entries optional `label`/`ex`/`arg`
    metadata and derive `LABELS` and `EX` from it — then a new command is
    bindable, discoverable in which-key, and typeable at `:` for free.
-3. `caretKey` is a switch parallel to `CARET_MOTIONS`. One table whose values are
+2. `caretKey` is a switch parallel to `CARET_MOTIONS`. One table whose values are
    a motion pair, a command name, or a function would make it one row per key and
    let the self-test iterate it.
-4. Four hand-rolled `loadSubScript` call sites; `part()` exists and is used by
-   one of them. Unifying is also where (1) would live, once.
-5. The self-test is one long function. A two-line `group(name, fn)` would tag
+3. Four hand-rolled `loadSubScript` call sites; `part()` exists and is used by
+   one of them. Every one of them now also repeats `strict({...})` by hand.
+4. The self-test is one long function. A two-line `group(name, fn)` would tag
    failures with their section.
-6. Constants are threaded through the context one at a time. One `CONFIG` object
+5. Constants are threaded through the context one at a time. One `CONFIG` object
    would shrink every destructure and is the natural seam for a real config file.
-7. **`child.js` has zero coverage.** Every assertion runs in the parent; the
+6. **`child.js` has zero coverage.** Every assertion runs in the parent; the
    content half — swallow allowlist, selection reporting, `gi` — is untested and
    is the harder half to debug.
 
@@ -196,6 +189,13 @@ resolves `resource://vimfox/`.
   not enter insert. `gi` must `markGesture()` itself — its keypress is eaten
   in the parent, content sees nothing.
 - Already in insert: accept page refocus. Only ENTERING is gated.
+- Same-tab navigation forces normal too, via a `TabsProgressListener`
+  `onLocationChange` that shares `resetForNewDocument()` with `TabSelect`.
+  Gated on the SELECTED browser, `isTopLevel`, and NOT
+  `LOCATION_CHANGE_SAME_DOCUMENT` — an anchor jump or `pushState` keeps the
+  document, and the caret with it. Without it, loading a page left you in caret
+  mode with no caret: content reports only selection TRANSITIONS, and there is
+  no transition when the document itself goes away.
 - `TabSelect` forces normal + defers focus steal-back. Firefox focuses the
   urlbar AFTER TabSelect, so a synchronous focus() is overridden.
 - Listen to `focus` only, never `blur` — mid-blur focusedElement is null and
@@ -399,6 +399,14 @@ window.js's closure. A helper window.js forgot to pass therefore resolves to
 `undefined` and throws ReferenceError at CALL time — swallowed by `run()`'s
 catch into a `dump()` nobody reads. `chromeField` and `focusedFindbar` shipped
 that way and killed Ctrl+W and `n`/`N`.
+
+Every context object is wrapped in `strict()` in window.js — a Proxy whose
+`get` throws on a key that is not there. The destructure at the top of each
+module therefore fails at LOAD time, naming the key, instead of resolving to
+`undefined` and blowing up at call time. Only the keys a module destructures
+are read, so the lazy `vf.toast` / `vf.SEQUENCES` reads stay lazy. Adding a
+key to a module's destructure without adding it to the context in window.js is
+now a startup error, not a dead binding.
 
 `typeof cmds[x] === "function"` does NOT catch this: it is true of a command
 whose body throws. The self-test therefore CALLS every command that is safe to
