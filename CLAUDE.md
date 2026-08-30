@@ -189,6 +189,21 @@ resolves `resource://vimfox/`.
   not enter insert. `gi` must `markGesture()` itself — its keypress is eaten
   in the parent, content sees nothing.
 - Already in insert: accept page refocus. Only ENTERING is gated.
+- **Focus never LEAVES insert mode.** `insert` is `holdFocus`, same as caret.
+  qutebrowser has no focus-driven exit at all: `input.insert_mode.auto_leave`
+  hangs off `mousePress` in `browser/eventfilter.py`, and its description says
+  "if a non-editable element is **clicked**". The four ways out are Escape,
+  a click on a non-editable element, a page load
+  (`input.insert_mode.leave_on_load`), and — ours, not qutebrowser's — a tab
+  switch. Nothing else. kagi's `j`/`k` walk the results by FOCUSING each link:
+  focus-driven exit ended insert mode on the first keystroke, and normal mode
+  then swallowed the second.
+- The click rule needs BOTH halves, because a remote browser's mousedown never
+  reaches the chrome window. Content clicks: `child.js` timestamps mousedown
+  separately from keydown and ships `clicked` on the focus report — a keystroke
+  that makes the page move focus is a gesture but NOT a click, which is the
+  whole distinction. Chrome clicks: a window `mousedown` capture listener,
+  deferred one tick because focus has not moved yet at mousedown.
 - Same-tab navigation forces normal too, via a `TabsProgressListener`
   `onLocationChange` that shares `resetForNewDocument()` with `TabSelect`.
   Gated on the SELECTED browser, `isTopLevel`, and NOT
@@ -255,6 +270,7 @@ Every "does X happen in this mode" question is answered from one table in
 | `escape` | we own Escape unconditionally (pending combo / count also claim it) |
 | `swallow` | content kills every key not explicitly passed |
 | `sticky` | focus changes and TabSelect must NOT move us out |
+| `holdFocus` | focus changes must not move us out, but TabSelect and a page load still do. `caret` and `insert` both have it |
 | `exit` | Shift-Escape is armed as the way out |
 
 `keys` deliberately drives BOTH the keyset and the fallback: they must cover
@@ -275,7 +291,7 @@ of it fails the test.
 | normal, no pending | page (modals work) |
 | caret | us, drop the selection and leave |
 | normal, pending combo | us, cancel only, don't touch focus |
-| insert | us, exit + blur |
+| insert | us, exit + blur. The only KEY that leaves insert |
 | command | palette's own handler |
 | passthrough | page. Exit = Shift-Escape only |
 

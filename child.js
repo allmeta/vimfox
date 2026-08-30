@@ -33,19 +33,30 @@ function isEditable() {
 // must not drag us into insert mode. Only focus that follows a real user
 // gesture counts — qutebrowser's input.insert_mode.auto_load = false.
 let lastGesture = 0;
+// Clicks are timestamped SEPARATELY from keys. Leaving insert mode is
+// click-driven in qutebrowser (input.insert_mode.auto_leave hangs off
+// mousePress in eventfilter.py), and a keystroke that makes the page move
+// focus itself must not count as one.
+let lastClick = 0;
 const GESTURE_WINDOW_MS = 300;
 
 function markGesture() {
   lastGesture = Date.now();
 }
 
-addEventListener("mousedown", markGesture, true);
+function markClick() {
+  lastClick = lastGesture = Date.now();
+}
+
+addEventListener("mousedown", markClick, true);
 addEventListener("keydown", markGesture, true);
 
 function report() {
+  const at = Date.now();
   sendAsyncMessage("VimFox:Focus", {
     editable: isEditable(),
-    userInitiated: Date.now() - lastGesture < GESTURE_WINDOW_MS,
+    userInitiated: at - lastGesture < GESTURE_WINDOW_MS,
+    clicked: at - lastClick < GESTURE_WINDOW_MS,
   });
 }
 

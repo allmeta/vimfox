@@ -21,6 +21,7 @@ this.vimfoxSelfTest = (vf) => {
     dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
     keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
     onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
+    leaveInsertOnClick,
     deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
   } = vf;
 
@@ -492,8 +493,21 @@ this.vimfoxSelfTest = (vf) => {
   // ...but once in insert, a page refocusing its own field must not eject us.
   onContentFocus(true, false);
   check(`page refocus ejected us from insert (mode=${vf.mode})`, vf.mode === "insert");
-  onContentFocus(false, false);
-  check(`leaving the field did not exit insert (mode=${vf.mode})`, vf.mode === "normal");
+  // The page moving focus to a non-editable element must NOT end insert mode:
+  // kagi's j/k walk the results by focusing a link, and exiting on that ate the
+  // first keystroke and swallowed every one after it.
+  onContentFocus(false, true, false);
+  check(`page focus change left insert mode (mode=${vf.mode})`, vf.mode === "insert");
+  // A CLICK on one does, and it is the only focus event that does —
+  // qutebrowser's input.insert_mode.auto_leave.
+  onContentFocus(false, true, true);
+  check(`a click on a non-editable did not exit insert (mode=${vf.mode})`, vf.mode === "normal");
+  // ...as does a page load: qutebrowser's input.insert_mode.leave_on_load.
+  vf.contentEditable = true;
+  refreshMode();
+  check(`could not re-enter insert mode (mode=${vf.mode})`, vf.mode === "insert");
+  onLocationChange(gBrowser.selectedBrowser, { isTopLevel: true }, null, null, 0);
+  check(`navigation did not leave insert mode (mode=${vf.mode})`, vf.mode === "normal");
   vf.contentEditable = false;
 
   // A chrome text field must put us in insert mode, or Escape gets handed to
@@ -530,9 +544,16 @@ this.vimfoxSelfTest = (vf) => {
     `chrome input did not enter insert mode (mode=${vf.mode})`,
     vf.mode === "insert" || !chromeInputFocused()
   );
+  // Removing the field is not a click, and insert is holdFocus — refreshMode
+  // would (correctly) keep us in insert, so leave it the way a click does.
   probeField.remove();
+  check(
+    `a vanished chrome field left insert mode on its own (mode=${vf.mode})`,
+    vf.mode === "insert" || !chromeInputFocused()
+  );
   vf.contentEditable = false;
-  refreshMode();
+  leaveInsertOnClick();
+  check(`a chrome click did not leave insert mode (mode=${vf.mode})`, vf.mode === "normal");
 
   // NB: NOT `key=";" modifiers="shift"`. When shift is held, Gecko builds
   // candidates only from shifted char codes, so the unshifted `;` of that

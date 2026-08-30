@@ -137,7 +137,14 @@
     // qutebrowser leaves caret mode only on c / Escape / yank, and so do we —
     // plus a tab switch, which `sticky` (below) deliberately does NOT cover.
     caret:       { keys: true,  escape: true,  swallow: true, holdFocus: true },
-    insert:      { keys: false, escape: true,  swallow: false },
+    // insert is holdFocus for the same reason from the other side: kagi's j/k
+    // walk the search results by FOCUSING each link, and a focus-driven exit
+    // ended insert mode on the first keystroke — after which the second was
+    // swallowed. qutebrowser never leaves insert on focus at all; its
+    // auto_leave hangs off mousePress, so a click, Escape, or a page load
+    // (leave_on_load) are the only ways out. Ours are the same three, plus a
+    // tab switch.
+    insert:      { keys: false, escape: true,  swallow: false, holdFocus: true },
     command:     { keys: false, escape: false, swallow: false, sticky: true },
     passthrough: { keys: false, escape: false, swallow: false, sticky: true, exit: true },
   };
@@ -241,9 +248,13 @@
   // can be reconciled against it without another IPC round trip.
   let contentEditable = false;
 
-  function onContentFocus(editable, userInitiated) {
+  function onContentFocus(editable, userInitiated, clicked) {
     if (!editable) {
       contentEditable = false;
+      // insert is holdFocus, so the refreshMode below keeps us in it when the
+      // PAGE moved focus. A real click on a non-editable element is the one
+      // focus event that gets you out — qutebrowser's auto_leave.
+      if (mode === "insert" && clicked) return setMode("normal");
     } else if (userInitiated || mode === "insert") {
       // Already in insert: a page refocusing one of its own fields mid-typing
       // must not knock us out, so accept it.
@@ -706,6 +717,7 @@
       gBrowser.tabContainer.removeEventListener("TabSelect", onTabSelect);
       gBrowser.removeTabsProgressListener(tabsProgress);
       win.removeEventListener("focus", refreshMode, true);
+      win.removeEventListener("mousedown", onChromeMousedown, true);
       win.removeEventListener("keydown", onWindowKeydown, true);
       // Cancels the combo and which-key timers as a side effect.
       setPending(null);
@@ -719,7 +731,7 @@
   // Content focus -> mode. This window's own message manager, so the frame
   // script's messages arrive here with no browser-element -> window lookup.
   const onFocusMsg = (msg) =>
-    onContentFocus(msg.data.editable, msg.data.userInitiated);
+    onContentFocus(msg.data.editable, msg.data.userInitiated, msg.data.clicked);
   win.messageManager.addMessageListener("VimFox:Focus", onFocusMsg);
 
   // A newly loaded frame does not know the mode yet; tell it.
@@ -786,6 +798,25 @@
   gBrowser.addTabsProgressListener(tabsProgress);
 
   win.addEventListener("focus", refreshMode, true);
+
+  // Insert mode is holdFocus, so focus alone never leaves it. A CLICK does —
+  // qutebrowser's input.insert_mode.auto_leave, which hangs off mousePress in
+  // eventfilter.py and not off any focus event. This is the CHROME half of that
+  // rule: clicking a toolbar button while the urlbar has focus must drop us
+  // back to normal. Content clicks never reach this window (a remote browser
+  // does not forward them), so they ride along on child.js's focus report
+  // instead, as `clicked`.
+  const leaveInsertOnClick = () => {
+    if (mode === "insert" && !chromeInputFocused() && !contentEditable) {
+      setMode("normal");
+    }
+  };
+  const onChromeMousedown = () => {
+    if (mode !== "insert") return;
+    // Focus has not moved yet at mousedown; let it land, then re-check.
+    win.setTimeout(leaveInsertOnClick, 0);
+  };
+  win.addEventListener("mousedown", onChromeMousedown, true);
 
   // The XUL keyset cannot win against browser-UI widgets: `reserved` only
   // governs whether *content* sees a key, and the urlbar's own keydown handler
@@ -879,6 +910,7 @@
         dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
         keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
         onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
+        leaveInsertOnClick,
         fallbackApplies: (m) => !!MODES[m]?.keys,
         deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
         get mode() { return mode; },
