@@ -242,8 +242,15 @@ swallowing keys, or `y` would type into the page.
   both variants of every motion, so `v` toggling selection is one array index.
   Verify against `strings libxul.so | grep '^cmd_select'`; the commands are not
   in omni.ja.
-- Caret mode sets `accessibility.browsewithcaret` and restores the previous
-  value on exit. Without a caret there is nothing for the motions to move.
+- Caret mode sets `accessibility.browsewithcaret`, and **`clearUserPref`s it on
+  exit — it does NOT restore a remembered value.** Without a caret there is
+  nothing for the motions to move. The pref is GLOBAL and `armCaret`'s state is
+  per-window, so remembering the previous value leaked: two windows both in
+  caret mode meant the second recorded our own `true` as "the user's setting"
+  and wrote it back on the way out, and the caret then stayed on in normal mode
+  forever, re-recorded by every later arm. `armCaret` is also idempotent now, so
+  an unbalanced arm or disarm cannot write anything wrong. The self-test arms
+  twice and disarms once.
 - Unmapped keys FALL THROUGH to the normal bindings. Caret mode must not be a
   trap.
 - `y` shadows the `y*` sequence prefix, yanks, and leaves — vim and
@@ -299,6 +306,26 @@ Escape is NOT in `keys` (the insert-disable list). Disabling the key that
 leaves insert strands you.
 
 ## Scrolling
+
+**A scroll command only reaches the page if the page has FOCUS.** `goDoCommand`
+resolves through `document.commandDispatcher`, which walks the focus ring, so
+with focus parked anywhere in the chrome every scroll key is a silent no-op —
+that is the "I have to click the page first" bug. Our own omnibar is the worst
+offender: after `o` loads a URL, focus sits in the chrome with no element at
+all, so the mode is right and the keyset is live and nothing scrolls.
+
+`resetForNewDocument()` therefore ends in a deferred focus steal-back, for a
+load as well as a tab switch. Deferred because Firefox focuses the urlbar for
+`about:newtab` AFTER `TabSelect`, so a synchronous `focus()` is overridden.
+
+**Do not test "can the page scroll" by asking the dispatcher for the
+controller.** It falls back to the CHROME window's own scroll controller and
+answers yes with a text field focused — a controller that scrolls nothing. The
+gate reads `document.activeElement === gBrowser.selectedBrowser` instead: a
+focused remote `<browser>` is the chrome document's activeElement.
+`selectedBrowser.controllers` is empty, so there is nothing to ask directly
+either. The self-test asserts the dispatcher trap itself, so it cannot be
+reintroduced.
 
 Every scroll is a Gecko command through `goDoCommand`, `hjkl` included.
 **`cmd_scrollLeft` and `cmd_scrollRight` DO exist** — this file claimed they did

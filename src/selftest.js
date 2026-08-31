@@ -21,7 +21,7 @@ this.vimfoxSelfTest = (vf) => {
     dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
     keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
     onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
-    leaveInsertOnClick,
+    leaveInsertOnClick, pageHasFocus,
     deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
   } = vf;
 
@@ -397,6 +397,22 @@ this.vimfoxSelfTest = (vf) => {
     "browse-with-caret not restored on leaving caret mode",
     Services.prefs.getBoolPref(CARET_PREF, false) === false
   );
+  // The pref is GLOBAL and armCaret's state is per-window, so arming twice is
+  // reachable — a second window entering caret mode while the first is in it.
+  // The old code recorded our own `true` as the value to restore, and the caret
+  // then stayed on in normal mode forever. Arming must be idempotent.
+  vf.armCaret(true);
+  vf.armCaret(true);
+  check("a second arm did not leave browse-with-caret on",
+    Services.prefs.getBoolPref(CARET_PREF, false));
+  vf.armCaret(false);
+  check(
+    "browse-with-caret survived a double arm",
+    Services.prefs.getBoolPref(CARET_PREF, false) === false
+  );
+  check("a user value was left behind on the caret pref",
+    !Services.prefs.prefHasUserValue(CARET_PREF));
+  check("caretArmed out of step with the pref", vf.caretArmed === false);
   // Unmapped keys must fall through, or caret mode traps you.
   setMode("caret");
   check("caret mode swallowed an unmapped key", caretKey("x") === false);
@@ -564,6 +580,24 @@ this.vimfoxSelfTest = (vf) => {
     `chrome input did not enter insert mode (mode=${vf.mode})`,
     vf.mode === "insert" || !chromeInputFocused()
   );
+  // Focus in the chrome means goDoCommand routes a scroll at the chrome window
+  // instead of the page, and every scroll key is a silent no-op. That is why
+  // the reset after a load and a tab switch hands focus back to the page:
+  // without it you had to click the page before j/k/h/l did anything.
+  check("a focused chrome field counted as the page having focus",
+    !pageHasFocus() || !chromeInputFocused());
+  // ...and the dispatcher is NOT the way to tell: it falls back to the chrome
+  // window's own scroll controller and answers yes with this field focused.
+  // That is why the gate reads activeElement instead. Assert the trap, or the
+  // next person reintroduces it.
+  check(
+    "the dispatcher stopped resolving a scroll controller from the chrome",
+    !chromeInputFocused() ||
+      !!document.commandDispatcher.getControllerForCommand("cmd_scrollLineDown")
+  );
+  gBrowser.selectedBrowser?.focus();
+  check("focusing the browser did not give the page focus", pageHasFocus());
+  probeField.focus();
   // Removing the field is not a click, and insert is holdFocus — refreshMode
   // would (correctly) keep us in insert, so leave it the way a click does.
   probeField.remove();

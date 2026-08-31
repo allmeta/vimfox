@@ -188,20 +188,28 @@
   }
 
   const CARET_PREF = "accessibility.browsewithcaret";
-  let caretPrefWas = null;
+  // Whether WE turned browse-with-caret on. Not the pref's previous value: the
+  // pref is GLOBAL and this state is per-window, so remembering one leaked. Two
+  // windows both entering caret mode meant the second recorded our own `true`
+  // as "the user's setting" and restored it on the way out — after which the
+  // caret was on in normal mode, forever, and every later arm re-recorded it.
+  let caretArmed = false;
 
   function armCaret(on) {
     try {
+      if (on === caretArmed) return;
+      caretArmed = on;
       if (on) {
-        caretPrefWas = Services.prefs.getBoolPref(CARET_PREF, false);
         Services.prefs.setBoolPref(CARET_PREF, true);
         // Entering via a mouse selection arrives with one already made; via `v`
         // it does not, and motions should then just move the caret.
         caretSelecting = contentSelected;
         caretFromSelection = contentSelected;
       } else {
-        if (caretPrefWas !== null) Services.prefs.setBoolPref(CARET_PREF, caretPrefWas);
-        caretPrefWas = null;
+        // clearUserPref, not setBoolPref(false): it puts the pref back to
+        // whatever the profile says instead of to a value we guessed, and it is
+        // idempotent, so an unbalanced disarm cannot write anything wrong.
+        Services.prefs.clearUserPref(CARET_PREF);
         caretSelecting = false;
         caretFromSelection = false;
       }
@@ -748,35 +756,53 @@
   // Switching tabs always lands in normal mode. contentEditable tracks the
   // window, not the tab, so without this you inherit the previous tab's state
   // — and a new tab whose search box autofocuses would strand you in insert.
+  // Whether a key command would reach the PAGE. `goDoCommand` resolves its
+  // controller through `document.commandDispatcher`, which walks the focus
+  // ring, so with focus parked anywhere in the chrome j/k/h/l scroll nothing
+  // and stay silent about it until you click the page.
+  //
+  // Do NOT test this by asking the dispatcher for the controller: it falls back
+  // to the CHROME window's own scroll controller and answers yes with a text
+  // field focused. The self-test asserts that, because it is the shape of bug
+  // this file keeps hitting — a call that happens and does nothing. A focused
+  // remote <browser> is the chrome document's activeElement, so ask that.
+  // (`selectedBrowser.controllers` is empty; there is nothing to ask directly.)
+  const pageHasFocus = () => document.activeElement === gBrowser.selectedBrowser;
+
   // Shared by tab switch and same-tab navigation: both put a document in front
-  // of you that the current mode knows nothing about. False when the mode is
-  // sticky and nothing was done.
-  function resetForNewDocument() {
-    if (now().sticky) return false;
+  // of you that the current mode knows nothing about. `fromLoad` is the one
+  // difference — a tab switch is a deliberate move to another page and takes
+  // focus with it, while a load can land mid-word in the urlbar (you typed a
+  // URL there and the OLD page redirected), and must leave that alone.
+  function resetForNewDocument(fromLoad) {
+    if (now().sticky) return;
     contentEditable = false;
     // The new document has its own selection state, and content only reports
     // TRANSITIONS — so a stale true here put it straight back into caret mode
     // on the focus event that follows, with no way out.
     contentSelected = false;
-    setMode("normal");
-    return true;
-  }
-
-  const onTabSelect = (e) => {
-    // Recorded before the early return, or `^` would forget every switch made
-    // while passthrough was on.
-    if (e.detail?.previousTab) lastTab = e.detail.previousTab;
-    if (!resetForNewDocument()) return;
+    setMode(fromLoad && chromeInputFocused() ? "insert" : "normal");
 
     // Firefox focuses the urlbar for about:newtab, and it does so AFTER
     // TabSelect — so focusing content here synchronously gets overridden.
     // Defer, and re-check we are still in normal mode before stealing it back.
     win.setTimeout(() => {
       if (mode !== "normal") return;
-      if (!chromeInputFocused()) return;
+      // Anything but the page holding focus: a chrome field, or nothing at all
+      // — which is what our own omnibar leaves behind after `o`. The mode is
+      // right and the keyset is live, and every scroll key is still a no-op
+      // until you click the page.
+      if (pageHasFocus()) return;
       gBrowser.selectedBrowser?.focus();
       refreshMode();
     }, 0);
+  }
+
+  const onTabSelect = (e) => {
+    // Recorded before the early return, or `^` would forget every switch made
+    // while passthrough was on.
+    if (e.detail?.previousTab) lastTab = e.detail.previousTab;
+    resetForNewDocument(false);
   };
   gBrowser.tabContainer.addEventListener("TabSelect", onTabSelect);
 
@@ -792,7 +818,7 @@
     // Anchor jumps and history.pushState keep the document, and the caret with
     // it. Only a real document swap should move the mode.
     if (flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT) return;
-    resetForNewDocument();
+    resetForNewDocument(true);
   };
   const tabsProgress = { onLocationChange };
   gBrowser.addTabsProgressListener(tabsProgress);
@@ -910,13 +936,14 @@
         dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
         keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
         onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
-        leaveInsertOnClick,
+        leaveInsertOnClick, pageHasFocus,
         fallbackApplies: (m) => !!MODES[m]?.keys,
         deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
         get mode() { return mode; },
         get pending() { return pending; },
         get caretSelecting() { return caretSelecting; },
-        get caretPrefWas() { return caretPrefWas; },
+        get caretArmed() { return caretArmed; },
+        armCaret,
         get count() { return count; },
         set count(v) { count = v; },
         set contentEditable(v) { contentEditable = v; },
