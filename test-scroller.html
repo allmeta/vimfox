@@ -1,0 +1,35 @@
+<title>scroller test</title>
+<!--
+  A page whose ROOT element does not scroll, which is what classic SharePoint
+  does (goto.netcompany.com/.../OpenItems.aspx found it). Gecko's scroll
+  commands walk up from the focused element and fall back to the root scroller,
+  so without child.js's pageshow handler j/k/h/l do nothing here until you
+  click. Open it with ./run.sh and press j: if the list moves, the handler
+  found #s4-workspace and focused it.
+-->
+<style>
+  /* Classic SharePoint: the BODY does not scroll, #s4-workspace does. */
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  #s4-workspace { height: 100%; overflow-y: auto; }
+  p { margin: 0 0 40px; font: 16px sans-serif; }
+</style>
+<div id="s4-workspace">
+  <div id="filler"></div>
+</div>
+<script>
+  const ws = document.getElementById("s4-workspace");
+  const filler = document.getElementById("filler");
+  for (let i = 0; i < 300; i++) {
+    const p = document.createElement("p");
+    p.textContent = "line " + i;
+    filler.appendChild(p);
+  }
+  const report = () => {
+    document.title =
+      "ws=" + Math.round(ws.scrollTop) +
+      " root=" + Math.round(document.scrollingElement.scrollTop);
+  };
+  ws.addEventListener("scroll", report);
+  addEventListener("scroll", report);
+  report();
+</script>

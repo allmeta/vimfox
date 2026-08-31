@@ -318,6 +318,30 @@ all, so the mode is right and the keyset is live and nothing scrolls.
 load as well as a tab switch. Deferred because Firefox focuses the urlbar for
 `about:newtab` AFTER `TabSelect`, so a synchronous `focus()` is overridden.
 
+**Focus in content decides WHICH scroller moves, not just whether one does.**
+`PresShell::GetScrollableFrameToScrollForContent` walks UP from the focused
+element and falls back to the ROOT scroller — so on a page whose root does not
+scroll (classic SharePoint: `<body>` is `overflow: hidden` and `#s4-workspace`
+is the real scroller) every scroll command moves the one thing that cannot,
+silently. `child.js` handles it on `pageshow`: if the root cannot scroll, find
+the element that can and focus it, `tabIndex = -1` if it needs one. Scrolling
+stays in the PARENT, which is what makes it survive a hung content process.
+
+Scrollability is tested by MOVING the element a pixel and putting it back, both
+directions — Vimium's `doesScroll`. CSS overflow rules are too easy to read
+wrong, and an element already at the bottom will not take a positive delta. The
+search is breadth-first over children at least half the viewport tall, because
+reading `scrollTop` forces a reflow and probing every node on a big page is slow.
+
+qutebrowser has NO answer for this: its hjkl are synthesized arrow keys, so it
+inherits the same routing, and its JS path (`javascript/scroll.js`) is
+`window.scrollBy`, root-only. Vimium solves it by scrolling the element from
+content (`content_scripts/scroller.js`).
+
+`test-scroller.html` is a repro. **The self-test cannot see this** — every
+assertion runs in the parent and this lives in `child.js`, which has no coverage
+at all. Verify by hand: `./run.sh file://.../test-scroller.html`, press `j`.
+
 **Do not test "can the page scroll" by asking the dispatcher for the
 controller.** It falls back to the CHROME window's own scroll controller and
 answers yes with a text field focused — a controller that scrolls nothing. The

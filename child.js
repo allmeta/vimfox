@@ -194,6 +194,75 @@ addMessageListener("VimFox:Blur", () => {
   report();
 });
 
+// Some pages do not scroll their root element. Classic SharePoint is the case
+// that found this: <body> is `overflow: hidden` and a #s4-workspace div is the
+// real scroller. Gecko's scroll commands walk UP from the focused element to
+// find a scrollable frame (PresShell::GetScrollableFrameToScrollForContent) and
+// fall back to the ROOT scroller, so with nothing focused they scroll the one
+// thing that cannot move — and j/k/h/l do nothing until you click the page.
+//
+// qutebrowser has no answer for this: its hjkl are synthesized arrow keys, so
+// it inherits the same routing, and its JS path is window.scrollBy, which is
+// root-only. Vimium solves it by scrolling the element itself from content
+// (scroller.js findScrollableElement). We keep scrolling in the PARENT — that
+// is what makes it survive a hung content process — and only hand Gecko a
+// focused element inside the real scroller, so every existing command works.
+
+// Empirical, like Vimium's doesScroll: overflow rules are far too easy to get
+// wrong from CSS alone, so move it a pixel and put it back. Both directions,
+// because an element already at the bottom will not take a positive delta.
+function canScroll(el) {
+  if (!el) return false;
+  const was = el.scrollTop;
+  for (const delta of [1, -1]) {
+    el.scrollTop = was + delta;
+    if (el.scrollTop !== was) {
+      el.scrollTop = was;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Breadth-first down the "big" spine only. Reading scrollTop forces a reflow,
+// so probing every element on a large page would be slow; a real scroller fills
+// most of the viewport, which cuts the search to a handful of nodes.
+function findScroller(root) {
+  const queue = [root];
+  while (queue.length) {
+    const el = queue.shift();
+    if (el !== root && canScroll(el)) return el;
+    for (const child of el.children) {
+      if (child.clientHeight >= content.innerHeight / 2) queue.push(child);
+    }
+  }
+  return null;
+}
+
+// ponytail: pageshow only, so a client-side route change in an SPA is not
+// covered. Hook the History API from here if one turns up that needs it.
+addEventListener("pageshow", () => {
+  try {
+    // Only the top frame. Focusing inside an iframe would steal focus from the
+    // page for a scroller the user never asked to scroll.
+    if (content !== content.top) return;
+    const doc = content.document;
+    if (canScroll(doc.scrollingElement)) return; // ordinary page, nothing to do
+    // The page focusing something itself wins: it knows better than this does,
+    // and stealing it would break autofocused search boxes.
+    const active = doc.activeElement;
+    if (active && active !== doc.body && active !== doc.documentElement) return;
+    const scroller = findScroller(doc.body);
+    if (!scroller) return;
+    // A div is not focusable without this. -1 keeps it out of the tab order, so
+    // the page's own Tab sequence is unchanged.
+    if (!scroller.hasAttribute("tabindex")) scroller.tabIndex = -1;
+    scroller.focus({ preventScroll: true });
+  } catch (ex) {
+    // A cross-origin or torn-down document. Not an error.
+  }
+}, true);
+
 // gi — Vimium's focusInput (content_scripts/mode_normal.js). Focus the first
 // visible text input, outline every one of them, and let Tab cycle between
 // them until any other key is pressed.
