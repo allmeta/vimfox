@@ -194,12 +194,6 @@ addMessageListener("VimFox:Blur", () => {
   report();
 });
 
-// h/l — horizontal scroll. Firefox has no cmd_scroll{Left,Right} to borrow,
-// unlike the vertical ones, so this is the one scroll that needs content code.
-addMessageListener("VimFox:ScrollX", (msg) => {
-  content?.scrollBy({ left: msg.data.dx, top: 0, behavior: "instant" });
-});
-
 // gi — Vimium's focusInput (content_scripts/mode_normal.js). Focus the first
 // visible text input, outline every one of them, and let Tab cycle between
 // them until any other key is pressed.

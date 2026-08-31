@@ -65,8 +65,8 @@ Ordered by how much they bite. Nothing here is subtle; these are all known.
   still `disabled`. Moot on unload, wrong if `destroy()` is ever called for
   anything else.
 - `send()` targets `gBrowser.selectedBrowser.messageManager`, which reaches only
-  the TOP-LEVEL frame. `VimFox:ClearSelection` and `VimFox:ScrollX` never arrive
-  in an iframe, so a selection made inside one cannot be cleared from the parent.
+  the TOP-LEVEL frame. `VimFox:ClearSelection` never arrives in an iframe, so a
+  selection made inside one cannot be cleared from the parent.
 
 **Missing features**
 
@@ -297,6 +297,28 @@ of it fails the test.
 
 Escape is NOT in `keys` (the insert-disable list). Disabling the key that
 leaves insert strands you.
+
+## Scrolling
+
+Every scroll is a Gecko command through `goDoCommand`, `hjkl` included.
+**`cmd_scrollLeft` and `cmd_scrollRight` DO exist** — this file claimed they did
+not, and h/l were content code (`content.scrollBy`) as a result, which scrolls
+only the top-level window's ROOT scroller: a wide table or a code block inside a
+div never moved, and the message never reached an iframe at all. Verify the set
+with `strings /usr/lib/firefox/libxul.so | grep '^cmd_scroll'`, the same way the
+caret commands are verified.
+
+The command dispatcher routes to whatever scroller has focus, which is the whole
+reason j/k worked everywhere while h/l did not. The self-test asserts a
+controller exists for each of the eight names — a wrong one is swallowed by
+`scrollCmd`'s catch and the key just does nothing.
+
+qutebrowser reaches the same place from the other end: `h`/`j`/`k`/`l` are bound
+to `scroll left|down|up|right` (`configdata.yml`), and on the QtWebEngine
+backend `WebEngineScroller` implements those as synthesized arrow-key presses
+(`_repeated_key_press(Qt.Key.Key_Left, count)` in `webenginetab.py`). Same
+outcome — the engine's own scroll routing decides what moves — by a different
+mechanism, because Qt gives it no command dispatcher to talk to.
 
 ## Normal mode swallows everything
 

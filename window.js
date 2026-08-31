@@ -24,8 +24,8 @@
 
   const HTML = "http://www.w3.org/1999/xhtml";
   // cmd_scrollLineDown moves one line; 3 per keypress feels like Vimium's 60px.
+  // The horizontal pair scrolls the same unit, so h/l share the constant.
   const SCROLL_LINES = 3;
-  const SCROLL_STEP_X = 60;
 
   // Alt-1..8 focus that tab, Alt-9 the last one — qutebrowser's convention.
   const TAB_DIGITS = 9;
@@ -610,7 +610,7 @@
       // findAgain throw ReferenceError on every use — Ctrl+W and n/N were dead,
       // and because C-w is ALWAYS_ON it had also permanently killed key_close.
       chromeField, focusedFindbar,
-      SCROLL_LINES, SCROLL_STEP_X, TAB_DIGITS,
+      SCROLL_LINES, TAB_DIGITS,
       setMode: (m) => setMode(m),
       get toast() {
         return toast;

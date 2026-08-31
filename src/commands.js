@@ -17,7 +17,7 @@ this.vimfoxCommands = (vf) => {
     win, document, gBrowser, log, send, deleteWordIn,
     chromeField, focusedFindbar,
 
-    SCROLL_LINES, SCROLL_STEP_X, TAB_DIGITS,
+    SCROLL_LINES, TAB_DIGITS,
     setMode,
   } = vf;
 
@@ -198,8 +198,14 @@ this.vimfoxCommands = (vf) => {
     // `/` used to leak to the page — Google binds it to its own search box.
     find:        () => openFind(),
     findLinks:   () => openFind(true),
-    scrollLeft:  () => send("VimFox:ScrollX", { dx: -SCROLL_STEP_X }),
-    scrollRight: () => send("VimFox:ScrollX", { dx: SCROLL_STEP_X }),
+    // cmd_scrollLeft/Right DO exist — `strings libxul.so | grep ^cmd_scroll`.
+    // These used to be content code (`content.scrollBy`), which scrolled only
+    // the top-level window's root scroller: a wide table or a code block inside
+    // a div never moved, and the message never reached an iframe at all. The
+    // command dispatcher routes to whatever scroller actually has focus, which
+    // is why j/k always worked and h/l did not.
+    scrollLeft:  () => scrollCmd("cmd_scrollLeft", SCROLL_LINES),
+    scrollRight: () => scrollCmd("cmd_scrollRight", SCROLL_LINES),
 
     // --- tabs -------------------------------------------------------------
     // Alternate tab. Firefox tracks no such thing, so TabSelect's own

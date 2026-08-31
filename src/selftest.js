@@ -441,6 +441,26 @@ this.vimfoxSelfTest = (vf) => {
     }
     check(`no controller for ${cmd}`, !!controller);
   }
+
+  // The scroll commands get the same treatment, for the same reason: a wrong
+  // name is caught by scrollCmd and logged, so h/l would just do nothing.
+  // cmd_scrollLeft and cmd_scrollRight were believed not to exist, which is how
+  // horizontal scrolling ended up as content code that only ever moved the
+  // top-level window's root scroller.
+  for (const cmd of [
+    "cmd_scrollLineDown", "cmd_scrollLineUp", "cmd_scrollLeft",
+    "cmd_scrollRight", "cmd_scrollPageDown", "cmd_scrollPageUp",
+    "cmd_scrollTop", "cmd_scrollBottom",
+  ]) {
+    let controller = null;
+    try {
+      controller = document.commandDispatcher.getControllerForCommand(cmd);
+    } catch (ex) {
+      /* reported by the check below */
+    }
+    check(`no controller for ${cmd}`, !!controller);
+  }
+
   toast.element.setAttribute("hidden", "true");
   // The yank above raised a toast; later checks assert a clean slate.
   toast.element.setAttribute("hidden", "true");
