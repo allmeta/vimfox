@@ -408,6 +408,21 @@ in it. Gating on `"normal"` alone left `$`, `{` and `}` dead in CARET mode —
 AltGr keys the keyset never matches — while `g$` worked, because that is normal
 mode. A binding that works in one mode and not another is this gate.
 
+`fallbackWants()` is the KEY gate, and it is deliberately wider than
+`isBound()`: `|| pending || count`. **An unknown key has to be able to cancel a
+half-typed combo**, and an unknown key is by definition bound to nothing — so
+the keyset registered no `<key>` for it, `isBound()` said no, the fallback
+skipped it, and the key never reached `dispatch()` at all. `yf` then sat pending
+until `COMBO_TIMEOUT`. vim, Vimium and qutebrowser
+(`basekeyparser.py`, `MatchType.none` → `clear_keystring()`) all throw the
+sequence away on the first key that does not continue it, and none of them
+re-interpret that key as a fresh binding.
+
+`dispatch()` handles the other half: an unmatched key throws away a half-typed
+COUNT as well, or the `3` in `3f` survives onto whatever you press next — and
+`x` is destructive. Both halves fail their own self-test check; they are
+separate bugs that look identical.
+
 ## Omnibar
 
 Ported from Vimium 2.4.2. Do not approximate it — read the source in the xpi.

@@ -16,7 +16,7 @@ this.vimfoxSelfTest = (vf) => {
   const {
     win, document, gBrowser, HTML, log,
     BINDINGS, SEQUENCES, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
-    DOMAIN_RELEVANCY, ONE_MONTH_MS, EX, MODES, fallbackApplies,
+    DOMAIN_RELEVANCY, ONE_MONTH_MS, EX, MODES, fallbackApplies, fallbackWants,
     cmds, keyset, palette, toast, whichKey, indicator, chromeStyle, toolbox,
     dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
     keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
@@ -171,6 +171,24 @@ this.vimfoxSelfTest = (vf) => {
     "Escape not released again after cancelling combo",
     escEl.hasAttribute("disabled")
   );
+
+  // An unknown key cancels a half-typed combo, the way vim, Vimium and
+  // qutebrowser all do. The gate matters as much as the handling: `f` is bound
+  // to nothing, so the keyset registered no <key> for it and isBound() said no
+  // — the layout fallback skipped it and the key never reached dispatch() at
+  // all, leaving `yf` pending until the combo timeout.
+  dispatch("y");
+  check(`y did not start a combo (pending=${vf.pending})`, vf.pending === "y");
+  check("the fallback ignores an unknown key during a combo", fallbackWants("f"));
+  dispatch("f");
+  check(`an unknown key did not cancel the combo (pending=${vf.pending})`, !vf.pending);
+  check("the fallback claims an unknown key with nothing pending", !fallbackWants("f"));
+  // ...and it throws away a half-typed count too, or the 3 in `3f` survives
+  // onto whatever you press next.
+  vf.count = "3";
+  check("the fallback ignores an unknown key during a count", fallbackWants("f"));
+  dispatch("f");
+  check(`an unknown key did not clear the count (count=${vf.count})`, vf.count === "");
   setMode("command");
   check(
     "Escape not released to palette in command mode",

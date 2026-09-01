@@ -388,6 +388,15 @@
   // mode while they worked fine in normal.
   const fallbackApplies = () => now().keys;
 
+  // Which keys the fallback is willing to dispatch. Wider than isBound() on
+  // purpose: a half-typed combo or count must be cancellable by ANY key, and an
+  // unknown one is bound to nothing by definition — so the keyset registered no
+  // <key> for it and isBound() said no, and `yf` sat pending until the combo
+  // timeout instead of being thrown away. vim, Vimium and qutebrowser all drop
+  // the sequence on the first key that does not continue it.
+  const fallbackWants = (name) =>
+    !!name && (isBound(name) || !!pending || !!count);
+
   // Bumped on every key the fallback is watching; dispatch() stamps it when the
   // keyset wins, which is how the two paths avoid running the same key twice.
   let keyToken = 0;
@@ -545,6 +554,10 @@
     }
     const cmd = BINDINGS[keyName];
     if (cmd) run(cmd);
+    // An unknown key throws a half-typed count away too, the same way an
+    // unmatched sequence does — `3` then `f` must not leave the 3 armed for
+    // whatever you press next, and `x` is destructive.
+    else takeCount();
   }
 
   // ------------------------------------------------------- loaded parts ---
@@ -879,7 +892,7 @@
       // XUL key handler runs in the system group, after this capture listener.
       if (fallbackApplies() && !chromeInputFocused()) {
         const name = keyNameFor(e);
-        if (name && isBound(name)) {
+        if (fallbackWants(name)) {
           const token = ++keyToken;
           win.setTimeout(() => {
             const handled = keyHandled.delete(token);
@@ -938,6 +951,7 @@
         onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
         leaveInsertOnClick, pageHasFocus,
         fallbackApplies: (m) => !!MODES[m]?.keys,
+        fallbackWants,
         deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
         get mode() { return mode; },
         get pending() { return pending; },
