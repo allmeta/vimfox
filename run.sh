@@ -7,6 +7,9 @@
 # rule can target it without also matching your default-profile Firefox.
 # Firefox's own --class is X11-only and does nothing under Wayland. The env var
 # also renames the remoting service, which --no-remote already opts out of.
+#
+# Which monitor it opens on is the compositor's call, not ours — Wayland gives a
+# client no say. The niri rule matching app-id="vimfox" carries open-on-output.
 MOZ_APP_REMOTINGNAME=vimfox \
 exec /usr/lib/firefox/firefox \
   --profile /home/thomal/.vimfox/profile \

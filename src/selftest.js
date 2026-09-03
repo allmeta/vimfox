@@ -681,6 +681,10 @@ this.vimfoxSelfTest = (vf) => {
     keyset.builtinsNormal.every((k) => k.hasAttribute("disabled"))
   );
 
+  // boot.js skips windows where this is false, so a regression here would
+  // silently stop vimfox attaching to real windows.
+  check("toolbar.visible is false in a real browser window", win.toolbar?.visible === true);
+
   // C-v is the one binding whose own mode hands its twin straight back, so it
   // used to enter passthrough AND paste.
   const keyPaste = document.getElementById("key_paste");

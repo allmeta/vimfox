@@ -551,6 +551,20 @@ selection, trailing-whitespace regex).
 
 ## Launching
 
+Popup windows (OAuth logins, "open in new window") are `browser.xhtml` too, so
+`attach()` skips them: `!win.toolbar.visible`, Firefox's own popup test. The
+frame script defaults to not swallowing, so skipping is all it takes. Note
+`openDialog` with the `all` feature re-enables every chrome flag and produces a
+window that is NOT a popup by this test — verify with the feature string
+Firefox actually uses for popups, and check `chromehidden` on the
+documentElement. The self-test only asserts `toolbar.visible` is true in a real
+window, which guards the dangerous direction; the popup half is manual.
+
+Which monitor the window opens on is the compositor's call — Wayland gives a
+client no say, and `run.sh` cannot do it. The niri rule matching
+`app-id="vimfox"` in `~/.config/niri/rules.kdl` carries `open-on-output`, which
+is the whole reason for the `app_id` below.
+
 `run.sh` sets `MOZ_APP_REMOTINGNAME=vimfox`, which is what gives the window a
 Wayland `app_id` of `vimfox` instead of `firefox` — so a compositor rule can
 target this instance without also matching the default-profile Firefox.

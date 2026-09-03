@@ -27,6 +27,14 @@
   const windowURL = "chrome://browser/content/browser.xhtml";
   function attach(win) {
     if (win.location.href !== windowURL || win.VimFox) return;
+    // Popups — OAuth logins, "open in new window" — are browser.xhtml too, but
+    // with no toolbar. Firefox's own popup test is !window.toolbar.visible.
+    // Skipping them entirely is enough: the frame script defaults to not
+    // swallowing, so nothing of ours touches the keyboard there.
+    if (!win.toolbar?.visible) {
+      log("skipping popup window");
+      return;
+    }
     try {
       Services.scriptloader.loadSubScript("resource://vimfox/window.js", win);
     } catch (ex) {
