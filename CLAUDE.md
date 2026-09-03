@@ -140,7 +140,13 @@ resolves `resource://vimfox/`.
   of leaving passthrough mode. `key_stop` is the same collision on plain
   Escape.
 - Each of our keys and its built-in twins move as one pair through `enable()`:
-  ours on means theirs off, always. Bare unmodified characters are skipped —
+  ours on means theirs off, always. **Suppressing is synchronous, releasing is
+  deferred one tick.** Ours are `reserved` and run before content, Firefox's are
+  not and run after, so both passes see the same keydown — a synchronous release
+  handed the very key that changed mode to the built-in too, and `C-v` entered
+  passthrough AND pasted. `flushBuiltins()` recomputes every pair from the live
+  `disabled` state, so repeated changes in one tick settle rather than race; the
+  self-test calls it before asserting any release. Bare unmodified characters are skipped —
   nothing built-in binds a plain letter.
 - Initial state is set explicitly when the keyset is built. `setMode()` returns
   early when the mode is unchanged, so a window opening in normal mode never

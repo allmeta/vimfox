@@ -202,6 +202,7 @@ this.vimfoxSelfTest = (vf) => {
   // about:processes instead of leaving the mode.
   const aboutProcesses = document.getElementById("key_aboutProcesses");
   check("key_aboutProcesses missing (Shift+Escape check is vacuous)", !!aboutProcesses);
+  keyset.flushBuiltins();
   check(
     "Shift+Escape not released to Firefox outside passthrough",
     keyset.passthroughExit.hasAttribute("disabled") &&
@@ -214,6 +215,7 @@ this.vimfoxSelfTest = (vf) => {
       aboutProcesses?.hasAttribute("disabled")
   );
   setMode("normal");
+  keyset.flushBuiltins();
   check(
     "key_aboutProcesses not restored after passthrough",
     !aboutProcesses?.hasAttribute("disabled")
@@ -668,6 +670,7 @@ this.vimfoxSelfTest = (vf) => {
   // ...and they must come back when we stop listening, or insert mode loses
   // Ctrl+V paste, Ctrl+D bookmark and so on.
   setMode("insert");
+  keyset.flushBuiltins();
   check(
     "built-ins not restored in insert mode",
     keyset.builtinsNormal.every((k) => !k.hasAttribute("disabled"))
@@ -677,6 +680,20 @@ this.vimfoxSelfTest = (vf) => {
     "built-ins not re-suppressed in normal mode",
     keyset.builtinsNormal.every((k) => k.hasAttribute("disabled"))
   );
+
+  // C-v is the one binding whose own mode hands its twin straight back, so it
+  // used to enter passthrough AND paste.
+  const keyPaste = document.getElementById("key_paste");
+  check("key_paste missing (the C-v check is vacuous)", !!keyPaste);
+  dispatch("C-v");
+  check(`C-v did not enter passthrough (mode=${vf.mode})`, vf.mode === "passthrough");
+  check(
+    "key_paste released during the keypress that entered passthrough",
+    keyPaste?.hasAttribute("disabled")
+  );
+  keyset.flushBuiltins();
+  check("key_paste not restored in passthrough", !keyPaste?.hasAttribute("disabled"));
+  setMode("normal");
   // C-w is ALWAYS_ON and must NEVER close a tab. That is two guarantees, in
   // every mode: ours stays live, and Firefox's key_close stays dead. The old
   // version of this check ran only in normal mode and asserted the opposite of

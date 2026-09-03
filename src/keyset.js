@@ -20,7 +20,7 @@
 
 this.vimfoxKeyset = (vf) => {
   const {
-    document, log, dispatch,
+    win, document, log, dispatch,
     BINDINGS, SEQUENCES, ALWAYS_ON, CARET_MOTIONS, CARET_EXTRA,
   } = vf;
 
@@ -183,12 +183,32 @@ this.vimfoxKeyset = (vf) => {
     const setDisabled = (node, off) =>
       off ? node.setAttribute("disabled", "true") : node.removeAttribute("disabled");
 
-    // One of ours and its built-in twins always move in opposite directions:
-    // whenever we are listening for a chord, Firefox is not, and the moment we
-    // stop, it gets the chord back. Single writer, so the two cannot drift.
+    // Ours and its built-in twins move in opposite directions, but NOT at the
+    // same time. Suppressing is immediate. Releasing waits a tick: ours are
+    // `reserved` and run before content, Firefox's are not and run after, so
+    // both passes see the same keydown — releasing synchronously gave the very
+    // key that changed mode to the built-in as well, and Ctrl+V pasted on its
+    // way into passthrough. The flush recomputes from the live `disabled` state,
+    // so repeated changes in one tick settle instead of racing.
+    let syncQueued = false;
+
+    const flushBuiltins = () => {
+      syncQueued = false;
+      for (const [ours, twins] of builtins) {
+        const off = !ours.hasAttribute("disabled");
+        for (const k of twins) setDisabled(k, off);
+      }
+    };
+
     const enable = (ours, on) => {
       setDisabled(ours, !on);
-      for (const k of builtins.get(ours) ?? []) setDisabled(k, on);
+      if (on) {
+        for (const k of builtins.get(ours) ?? []) setDisabled(k, true);
+        return;
+      }
+      if (syncQueued) return;
+      syncQueued = true;
+      win.setTimeout(flushBuiltins, 0);
     };
 
     // Startup state has to match `mode = "normal"` up front. setMode() returns
@@ -204,6 +224,9 @@ this.vimfoxKeyset = (vf) => {
       element: el,
       escape: esc,
       builtinsNormal,
+      // For the self-test: releases are deferred, so asserting one needs the
+      // pending pass settled first.
+      flushBuiltins,
       setEnabled(on) {
         for (const k of keys) enable(k, on);
       },

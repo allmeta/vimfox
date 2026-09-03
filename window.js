@@ -663,7 +663,7 @@
     const scope = {};
     Services.scriptloader.loadSubScript("resource://vimfox/src/keyset.js", scope);
     return scope.vimfoxKeyset(strict({
-      document, log,
+      win, document, log,
       dispatch: (k) => dispatch(k),
       BINDINGS, SEQUENCES, ALWAYS_ON, CARET_MOTIONS, CARET_EXTRA,
     }));
