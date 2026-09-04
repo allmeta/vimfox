@@ -201,6 +201,18 @@ this.vimfoxOmnibar = (vf) => {
   const matchesAllTerms = (terms, url, title) =>
     terms.every((t) => regexFor(t).test(url) || regexFor(t).test(title || ""));
 
+  // `open` queries Places per keystroke; every other palette ranks a preloaded
+  // list, and this is that half. No recency to feed in, so it is pure
+  // wordRelevancy.
+  const rankItems = (terms, list) => {
+    if (!terms.length) return list;
+    const scored = list
+      .filter((it) => matchesAllTerms(terms, it.sub ?? "", it.label))
+      .map((it) => [computeRelevancy(terms, it.sub ?? "", it.label, 0), it]);
+    scored.sort((a, b) => b[0] - a[0]);
+    return scored.map(([, it]) => it);
+  };
+
   // Vimium's DomainCompleter. For a single-word query it contributes exactly
   // one suggestion — the best-matching domain — with a fixed relevancy of 2.0,
   // which outranks every history suggestion (those score in [0,1]). That fixed
@@ -477,14 +489,12 @@ this.vimfoxOmnibar = (vf) => {
         return;
       }
 
-      const q = input.value.trim().toLowerCase();
-      filtered = !q
-        ? items
-        : items.filter(
-            (it) =>
-              it.label.toLowerCase().includes(q) ||
-              (it.sub ?? "").toLowerCase().includes(q)
-          );
+      // One substring could never match "goto kys" against
+      // goto.netcompany.com/…/kys. render() already tokenised for highlighting.
+      filtered = rankItems(
+        input.value.trim().split(/\s+/).filter(Boolean).slice(0, 4),
+        items
+      );
       sel = initialSel;
       render();
     }
@@ -696,6 +706,7 @@ this.vimfoxOmnibar = (vf) => {
     highlight,
     computeRelevancy,
     matchesAllTerms,
+    rankItems,
     DOMAIN_RELEVANCY,
     ONE_MONTH_MS,
   };

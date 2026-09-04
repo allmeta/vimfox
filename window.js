@@ -614,7 +614,7 @@
   }));
   const {
     palette, openInput, listTabs, listBookmarks, highlight,
-    computeRelevancy, matchesAllTerms, DOMAIN_RELEVANCY, ONE_MONTH_MS,
+    computeRelevancy, matchesAllTerms, rankItems, DOMAIN_RELEVANCY, ONE_MONTH_MS,
   } = omnibar;
 
   // ------------------------------------------------------------ commands ---
@@ -953,6 +953,7 @@
         fallbackApplies: (m) => !!MODES[m]?.keys,
         fallbackWants,
         deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
+        rankItems,
         get mode() { return mode; },
         get pending() { return pending; },
         get caretSelecting() { return caretSelecting; },

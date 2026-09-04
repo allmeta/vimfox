@@ -23,6 +23,7 @@ this.vimfoxSelfTest = (vf) => {
     onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
     leaveInsertOnClick, pageHasFocus,
     deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
+    rankItems,
   } = vf;
 
   const fails = [];
@@ -851,6 +852,25 @@ this.vimfoxSelfTest = (vf) => {
     "recency must never pull a strong match down",
     computeRelevancy(["a"], "https://a.com/", "A", old) ===
       computeRelevancy(["a"], "https://a.com/", "A", Date.now())
+  );
+
+  // gt / b / `:` filtered on ONE substring, so "goto kys" could not reach a tab
+  // at goto.netcompany.com/.../kys that the o menu found without trouble.
+  const rows = [
+    { label: "Open items", sub: "https://goto.netcompany.com/cases/GTE841/kys.aspx" },
+    { label: "Kys", sub: "https://example.com/other" },
+    { label: "Goto", sub: "https://goto.example.com/" },
+  ];
+  const ranked = rankItems(["goto", "kys"], rows);
+  check(`multi-term search matched ${ranked.length} rows, want 1`, ranked.length === 1);
+  check(
+    "multi-term search picked the wrong row",
+    ranked[0]?.sub.startsWith("https://goto.netcompany.com/")
+  );
+  check("an empty query dropped rows", rankItems([], rows).length === rows.length);
+  check(
+    "ranking did not put the stronger match first",
+    rankItems(["goto"], rows)[0]?.label === "Goto"
   );
 
   const tst = document.getElementById("vimfox-toast");

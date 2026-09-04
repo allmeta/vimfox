@@ -449,6 +449,12 @@ Ported from Vimium 2.4.2. Do not approximate it — read the source in the xpi.
 - NO debounce. NEVER clear the list. Render once, on results. Clearing first
   is what caused the blink.
 - Stale replies dropped by token.
+- `open` is the only kind that queries Places per keystroke. `gt`/`b`/`:` rank a
+  preloaded list through `rankItems`, which is the same `matchesAllTerms` +
+  `computeRelevancy` pair — so multi-term and smartcase work everywhere. They
+  used to filter on ONE substring, and `goto kys` could not match
+  `goto.netcompany.com/…/kys` even though `o` found it. `render()` already
+  tokenised the query for highlighting, so only the filter was wrong.
 
 `vomnibar.css` is verbatim Vimium except two scoped selectors (`ul`,
 `.no-insert-text`) — unscoped they style the whole browser UI. Positioning
