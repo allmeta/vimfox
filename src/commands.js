@@ -221,6 +221,15 @@ this.vimfoxCommands = (vf) => {
     tabFirst:     () => focusTabAt(0),
     tabLast:      () => focusTabAt(-1),
     tabMute:      () => gBrowser.selectedTab.toggleMuteAudio(),
+    // Vimium's W. Firefox disables its own "Move Tab to New Window" on the last
+    // tab, and replaceTabWithWindow there just relocates the window.
+    tabDetach() {
+      if (gBrowser.visibleTabs.length < 2) {
+        vf.toast.show("only tab in this window");
+        return;
+      }
+      gBrowser.replaceTabWithWindow(gBrowser.selectedTab);
+    },
 
     // --- url / clipboard --------------------------------------------------
     urlUp:            () => urlUp("current"),
@@ -296,6 +305,7 @@ this.vimfoxCommands = (vf) => {
     K: "tabNext",
     x: "tabClose",
     X: "tabUndo",
+    W: "tabDetach",
     H: "back",
     L: "forward",
     h: "scrollLeft",
@@ -408,6 +418,7 @@ this.vimfoxCommands = (vf) => {
     tabSelect: "tab search",
     editUrl: "edit current URL",
     tabClone: "clone tab",
+    tabDetach: "move tab to a new window",
     tabMoveRight: "move tab right",
     tabMoveLeft: "move tab left",
     tabFirst: "first tab",

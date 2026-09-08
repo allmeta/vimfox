@@ -47,6 +47,11 @@ split; that is what made the first refactor necessary.
 
 - **A binding**: `cmds` entry + `BINDINGS`/`SEQUENCES` row + `LABELS` row, all in
   `src/commands.js`. The self-test checks all three agree AND calls the command.
+  `LABELS` is which-key only, so it is REQUIRED for a `SEQUENCES` command and
+  optional for a bare one; the check is scoped that way. Anything that opens a
+  window or navigates also needs an `UNSAFE_TO_CALL` entry, and then assert the
+  `gBrowser` method it rests on instead — that is the only guard left against
+  the silent-no-op drift that got `moveTabTo`.
 - **A caret key**: `CARET_MOTIONS` if it is a motion (a `[move, select]` PAIR),
   else an arm in `caretKey` in window.js, and add it to `CARET_EXTRA` or the
   layout fallback will not fire for it.

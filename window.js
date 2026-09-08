@@ -919,7 +919,7 @@
       );
       scope.vimfoxSelfTest(strict({
         win, document, gBrowser, HTML, log,
-        BINDINGS, SEQUENCES, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
+        BINDINGS, SEQUENCES, LABELS, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
         DOMAIN_RELEVANCY, ONE_MONTH_MS, EX, MODES,
         cmds, keyset, palette, toast, whichKey, indicator, chromeStyle, toolbox,
         dispatch, run, setMode, setPending, takeCount, isBound, caretKey,

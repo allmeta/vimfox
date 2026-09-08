@@ -15,7 +15,7 @@
 this.vimfoxSelfTest = (vf) => {
   const {
     win, document, gBrowser, HTML, log,
-    BINDINGS, SEQUENCES, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
+    BINDINGS, SEQUENCES, LABELS, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
     DOMAIN_RELEVANCY, ONE_MONTH_MS, EX, MODES, fallbackApplies, fallbackWants,
     cmds, keyset, palette, toast, whichKey, indicator, chromeStyle, toolbox,
     dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
@@ -38,6 +38,9 @@ this.vimfoxSelfTest = (vf) => {
         `SEQUENCES.${prefix}${key} -> ${cmd} missing`,
         typeof cmds[cmd] === "function"
       );
+      // which-key falls back to the raw command name, so a missing label is
+      // silent — it just reads `tabMoveLeft` instead of "move tab left".
+      check(`SEQUENCES.${prefix}${key} -> ${cmd} has no LABELS row`, !!LABELS[cmd]);
     }
   }
   // A prefix that also has a top-level binding would shadow the sequence.
@@ -63,8 +66,14 @@ this.vimfoxSelfTest = (vf) => {
     "tabMoveRight", "tabFirst", "tabLast", "tabPrev", "tabNext", "tabMute",
     "yankUrl", "yankTitle", "yankDomain", "yankPretty", "yankMarkdown",
     "copySelection", "find", "findLinks", "zoomIn", "zoomOut", "zoomReset",
-    "focusInput", "deleteWord",
+    "focusInput", "deleteWord", "tabDetach",
   ]);
+  // tabDetach opens a window, so it cannot be called here. Assert the API it
+  // rests on instead — moveTabTo already went silently no-op on drift once.
+  check(
+    "gBrowser.replaceTabWithWindow is gone — W would do nothing",
+    typeof gBrowser.replaceTabWithWindow === "function"
+  );
   for (const [name, fn] of Object.entries(cmds)) {
     if (UNSAFE_TO_CALL.has(name) || /^tabFocus/.test(name)) continue;
     let threw = null;
