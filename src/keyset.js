@@ -224,6 +224,10 @@ this.vimfoxKeyset = (vf) => {
       element: el,
       escape: esc,
       builtinsNormal,
+      // The self-test pairs keys with this too. It used to reimplement the
+      // comparison and drifted: its version required accel but never checked
+      // alt was absent, so FF155's Ctrl+Alt+U read as a clash with our Ctrl+U.
+      chordOf,
       // For the self-test: releases are deferred, so asserting one needs the
       // pending pass settled first.
       flushBuiltins,

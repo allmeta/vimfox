@@ -110,6 +110,20 @@ Ordered by how much they bite. Nothing here is subtle; these are all known.
 - `dump()` needs `browser.dom.window.dump.enabled`. `logStringMessage` does
   NOT reach stdout. Without the pref, failures are invisible.
 
+## The bootstrap is resource://, not file://
+
+**FF155 (bug 1974213) refuses `file:` and `jar:` in `loadSubScript`.** The whole
+thing died with `vimfox loader failed: Trying to load untrusted URI.:
+file:///home/thomal/.vimfox/boot.js`. `resource:` is still trusted, so
+`autoconfig.cfg` registers the `resource://vimfox/` substitution ITSELF and then
+loads `resource://vimfox/boot.js`. boot.js used to register it and could no
+longer be reached to do so. Everything it loads afterwards was already going
+through `resource://vimfox/`, which is why only the bootstrap broke.
+
+There is an opt-in on `loadSubScriptWithOptions` to allow untrusted schemes.
+Don't reach for it — `resource:` is the supported path and does not depend on an
+escape hatch Mozilla can close.
+
 ## Why frame script, not JSWindowActor
 
 Content sandbox refuses to read `~/.vimfox`. Actor child ESM = content process
@@ -133,6 +147,11 @@ resolves `resource://vimfox/`.
 - Suppression is MODE-SCOPED except `ALWAYS_ON`. `key_paste` collides with
   `C-v`; killing it permanently breaks Ctrl+V in the urlbar. Only `key_close`
   is permanently dead (C-w is ALWAYS_ON).
+- `chordOf` is the ONE comparison, exported from keyset.js so the self-test uses
+  it too. The test used to reimplement it and drifted: it required `accel` but
+  never checked `alt` was ABSENT, so FF155's new `viewOpenTabsSidebarKb`
+  (`modifiers="accel,alt"`, Ctrl+Alt+U) read as a clash with our Ctrl+U and
+  failed a green build. A chord is key/keycode + accel + alt + shift, all four.
 - The collision scan runs over the `<key>` elements WE REGISTERED, never over
   `BINDINGS`. The two keycode keys (Escape, Shift+Escape) are built by hand
   outside that table, and a BINDINGS-driven scan cannot see them — which left
@@ -195,21 +214,19 @@ resolves `resource://vimfox/`.
   not enter insert. `gi` must `markGesture()` itself — its keypress is eaten
   in the parent, content sees nothing.
 - Already in insert: accept page refocus. Only ENTERING is gated.
-- **Focus never LEAVES insert mode.** `insert` is `holdFocus`, same as caret.
-  qutebrowser has no focus-driven exit at all: `input.insert_mode.auto_leave`
-  hangs off `mousePress` in `browser/eventfilter.py`, and its description says
-  "if a non-editable element is **clicked**". The four ways out are Escape,
-  a click on a non-editable element, a page load
-  (`input.insert_mode.leave_on_load`), and — ours, not qutebrowser's — a tab
-  switch. Nothing else. kagi's `j`/`k` walk the results by FOCUSING each link:
-  focus-driven exit ended insert mode on the first keystroke, and normal mode
-  then swallowed the second.
-- The click rule needs BOTH halves, because a remote browser's mousedown never
-  reaches the chrome window. Content clicks: `child.js` timestamps mousedown
-  separately from keydown and ships `clicked` on the focus report — a keystroke
-  that makes the page move focus is a gesture but NOT a click, which is the
-  whole distinction. Chrome clicks: a window `mousedown` capture listener,
-  deferred one tick because focus has not moved yet at mousedown.
+- **NO focus event leaves insert mode, clicks included.** `insert` is
+  `holdFocus`, same as caret. Exactly three things get you out: Escape, a page
+  load (qutebrowser's `input.insert_mode.leave_on_load`), and a tab switch.
+  Nothing else — deliberately stricter than qutebrowser, which also leaves on a
+  click via `input.insert_mode.auto_leave` (`mousePress` in
+  `browser/eventfilter.py`). We had that click rule and dropped it: insert is a
+  mode you leave on purpose. kagi's `j`/`k` walk the results by FOCUSING each
+  link, and any focus-driven exit ends insert on the first keystroke and
+  swallows the second.
+- ENTERING is still gesture-gated, and that half is unchanged: clicking any text
+  field puts you in insert. `isEditable()` in `child.js` covers contenteditable,
+  `textarea`, `select` and every `input` type outside `NON_TEXT_INPUTS`
+  (button/checkbox/radio/submit/reset/file/image/color/range).
 - Same-tab navigation forces normal too, via a `TabsProgressListener`
   `onLocationChange` that shares `resetForNewDocument()` with `TabSelect`.
   Gated on the SELECTED browser, `isTopLevel`, and NOT

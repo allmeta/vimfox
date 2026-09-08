@@ -21,7 +21,7 @@ this.vimfoxSelfTest = (vf) => {
     dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
     keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
     onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
-    leaveInsertOnClick, pageHasFocus,
+    pageHasFocus,
     deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
     rankItems,
   } = vf;
@@ -550,16 +550,15 @@ this.vimfoxSelfTest = (vf) => {
   // ...but once in insert, a page refocusing its own field must not eject us.
   onContentFocus(true, false);
   check(`page refocus ejected us from insert (mode=${vf.mode})`, vf.mode === "insert");
-  // The page moving focus to a non-editable element must NOT end insert mode:
-  // kagi's j/k walk the results by focusing a link, and exiting on that ate the
-  // first keystroke and swallowed every one after it.
-  onContentFocus(false, true, false);
-  check(`page focus change left insert mode (mode=${vf.mode})`, vf.mode === "insert");
-  // A CLICK on one does, and it is the only focus event that does —
-  // qutebrowser's input.insert_mode.auto_leave.
-  onContentFocus(false, true, true);
-  check(`a click on a non-editable did not exit insert (mode=${vf.mode})`, vf.mode === "normal");
-  // ...as does a page load: qutebrowser's input.insert_mode.leave_on_load.
+  // NO focus event ends insert mode, clicks included. Escape, a page load and a
+  // tab switch are the only ways out.
+  onContentFocus(false, true);
+  check(`a focus change left insert mode (mode=${vf.mode})`, vf.mode === "insert");
+  onContentFocus(false, true);
+  check(`a click on a non-editable left insert mode (mode=${vf.mode})`, vf.mode === "insert");
+  dispatch("Escape");
+  check(`Escape did not leave insert mode (mode=${vf.mode})`, vf.mode === "normal");
+  // A page load does too — qutebrowser's input.insert_mode.leave_on_load.
   vf.contentEditable = true;
   refreshMode();
   check(`could not re-enter insert mode (mode=${vf.mode})`, vf.mode === "insert");
@@ -619,16 +618,15 @@ this.vimfoxSelfTest = (vf) => {
   gBrowser.selectedBrowser?.focus();
   check("focusing the browser did not give the page focus", pageHasFocus());
   probeField.focus();
-  // Removing the field is not a click, and insert is holdFocus — refreshMode
-  // would (correctly) keep us in insert, so leave it the way a click does.
+  // insert is holdFocus, so losing the field does not end the mode either.
   probeField.remove();
+  refreshMode();
   check(
-    `a vanished chrome field left insert mode on its own (mode=${vf.mode})`,
+    `a vanished chrome field left insert mode (mode=${vf.mode})`,
     vf.mode === "insert" || !chromeInputFocused()
   );
   vf.contentEditable = false;
-  leaveInsertOnClick();
-  check(`a chrome click did not leave insert mode (mode=${vf.mode})`, vf.mode === "normal");
+  setMode("normal");
 
   // NB: NOT `key=";" modifiers="shift"`. When shift is held, Gecko builds
   // candidates only from shifted char codes, so the unshifted `;` of that
@@ -648,22 +646,22 @@ this.vimfoxSelfTest = (vf) => {
     "Browser:AddBookmarkAs command missing (M would do nothing)",
     !!document.getElementById("Browser:AddBookmarkAs")
   );
-  // Any enabled built-in sharing one of our chords will win over ours.
-  for (const combo of Object.keys(BINDINGS).filter((k) => /^[CA]-/.test(k))) {
-    const ch = combo.slice(2).toLowerCase();
-    const clash = [...document.querySelectorAll("key")].find((k) => {
-      if (k.closest("#vimfox-keyset")) return false;
-      if ((k.getAttribute("key") || "").toLowerCase() !== ch) return false;
-      const mods = (k.getAttribute("modifiers") || "").toLowerCase();
-      if (mods.includes("shift")) return false;
-      const isAlt = mods.includes("alt");
-      const wantAlt = combo[0] === "A";
-      if (wantAlt ? !isAlt : !(mods.includes("accel") || mods.includes("control")))
-        return false;
-      return !k.hasAttribute("disabled");
-    });
+  // Any enabled built-in sharing one of our chords will win over ours. Paired
+  // with keyset's own chordOf, and over the keys we REGISTERED rather than over
+  // BINDINGS — the same rule the keyset scan follows, so the keycode keys
+  // (Escape, Shift+Escape) are covered and the two cannot disagree.
+  const theirKeys = [...document.querySelectorAll("key")].filter(
+    (k) => !k.closest("#vimfox-keyset")
+  );
+  for (const ours of keyset.element.querySelectorAll("key")) {
+    if (!ours.hasAttribute("modifiers") && !ours.hasAttribute("keycode")) continue;
+    if (ours.hasAttribute("disabled")) continue;
+    const chord = keyset.chordOf(ours);
+    const clash = theirKeys.find(
+      (k) => keyset.chordOf(k) === chord && !k.hasAttribute("disabled")
+    );
     check(
-      `built-in key still active for ${combo} (#${clash?.id || "anon"})`,
+      `built-in key still active for ${chord} (#${clash?.id || "anon"})`,
       !clash
     );
   }
