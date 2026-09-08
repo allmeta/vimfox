@@ -286,6 +286,16 @@ swallowing keys, or `y` would type into the page.
 - `/` needs no work to search the selection: findbar's `startFind` calls
   `finder.getInitialSelection()`, gated on
   `accessibility.typeaheadfind.prefillwithselection`, which defaults true.
+- **`/` opens `FIND_NORMAL`, never `FIND_TYPEAHEAD`.** `findbar.js` arms
+  `_setFindCloseTimeout()` for every mode except normal, so quick-find closed
+  itself after `accessibility.typeaheadfind.timeout` — 4000ms in `greprefs.js`.
+  `'` must stay `FIND_LINKS` to be links-only and inherits that timeout; that is
+  inherent, not a bug. Untested: the findbar is created lazily and
+  asynchronously, so the self-test has no instance to read the mode off.
+- **The findbar cannot do wildcards or regex.** `Finder.sys.mjs` exposes exactly
+  three knobs — `caseSensitive`, `matchDiacritics`, `entireWord` — over
+  `nsIFind`, which matches literal substrings. Wildcards mean our own find in
+  content JS, not a flag.
 - Gecko has NO command for `e` (end of word), `V` (line selection), or
   qutebrowser's four `[` `]` block motions — only the paragraph pair. Those
   need hand-written content JS, which is why they are absent. `o`

@@ -100,9 +100,12 @@ this.vimfoxCommands = (vf) => {
   }
 
   function openFind(linksOnly) {
-    // Quick-find rather than the full bar, matching what `'` gave you before.
+    // FIND_NORMAL, not FIND_TYPEAHEAD: findbar.js arms _setFindCloseTimeout for
+    // every mode EXCEPT normal, so quick-find closed itself after
+    // accessibility.typeaheadfind.timeout (4s by default). `'` has to stay
+    // FIND_LINKS to be links-only, and inherits that timeout.
     const open = (fb) =>
-      fb?.startFind(linksOnly ? fb.FIND_LINKS : fb.FIND_TYPEAHEAD);
+      fb?.startFind(linksOnly ? fb.FIND_LINKS : fb.FIND_NORMAL);
     const cached = gBrowser.getCachedFindBar?.();
     if (cached) open(cached);
     else gBrowser.getFindBar?.()?.then(open, (ex) => log(`find failed: ${ex}`));
