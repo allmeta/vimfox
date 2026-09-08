@@ -627,6 +627,12 @@
       // findAgain throw ReferenceError on every use — Ctrl+W and n/N were dead,
       // and because C-w is ALWAYS_ON it had also permanently killed key_close.
       chromeField, focusedFindbar,
+      // openInput is the omnibar's, and p / P are its only callers in there.
+      // It was a bare free variable, so it resolved against the chrome window,
+      // came back undefined and threw into run()'s catch: p and P did nothing.
+      // SessionStore only ever worked because browser.xhtml happens to define
+      // one globally; passing it makes that explicit.
+      openInput, SessionStore,
       SCROLL_LINES, TAB_DIGITS,
       setMode: (m) => setMode(m),
       get toast() {

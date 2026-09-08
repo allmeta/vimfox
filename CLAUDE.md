@@ -558,6 +558,18 @@ are read, so the lazy `vf.toast` / `vf.SEQUENCES` reads stay lazy. Adding a
 key to a module's destructure without adding it to the context in window.js is
 now a startup error, not a dead binding.
 
+**`strict()` only guards keys a module DESTRUCTURES.** A bare free variable is
+not a context read at all, so it still resolves against the chrome window and
+still dies at call time. `openInput` shipped that way and `p` / `P` did nothing
+for as long as they existed — the bug was never in the binding. Destructure
+every helper, even one used once; that is what puts it under the Proxy.
+`SessionStore` was the same shape and only worked because browser.xhtml happens
+to define one globally. Both are passed explicitly now.
+
+Nothing catches this automatically for a command in `UNSAFE_TO_CALL`: the suite
+cannot invoke it, so the throw never happens under test. That set is where this
+class of bug survives.
+
 `typeof cmds[x] === "function"` does NOT catch this: it is true of a command
 whose body throws. The self-test therefore CALLS every command that is safe to
 run headlessly and fails on a throw. Keep `UNSAFE_TO_CALL` honest — anything
@@ -637,6 +649,24 @@ else surfaces it. `findNext failed: ReferenceError` sat in the log for days.
 Startup on a page with text, not `about:blank`: several checks need a real
 document, and `about:blank` opens with the urlbar focused, which changes what
 `chromeInputFocused()` reports.
+
+## Clipboard
+
+**`readClipboard()` returns "" unless the window has FOCUS.** Wayland hands the
+selection offer to the focused client only, so an unfocused Firefox genuinely
+sees an empty clipboard: `getData` succeeds, the transferable is empty,
+`getTransferData` throws NS_ERROR_FAILURE, and `hasDataMatchingFlavors` /
+`getDataSnapshotSync` both report no flavors at all. Focus the window and the
+same code returns the text.
+
+This makes the clipboard UNTESTABLE from the self-test, which runs on window
+load, before focus. Do not add a round-trip check — it will pass or fail
+depending on what else is focused. `p` / `P` were reported broken on exactly
+this evidence and the code was fine. Verify by hand, or with a probe on a
+`setTimeout` long enough to focus the window first.
+
+`kSelectionClipboard` (PRIMARY) throws outright on this build; only
+`kGlobalClipboard` works.
 
 ## Mouse
 

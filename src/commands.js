@@ -16,6 +16,9 @@ this.vimfoxCommands = (vf) => {
   const {
     win, document, gBrowser, log, send, deleteWordIn,
     chromeField, focusedFindbar,
+    // Destructured, not referenced free: strict() then makes a missing one a
+    // load-time error naming it, which is the only thing that catches this.
+    openInput, SessionStore,
 
     SCROLL_LINES, TAB_DIGITS,
     setMode,
@@ -309,6 +312,9 @@ this.vimfoxCommands = (vf) => {
     x: "tabClose",
     X: "tabUndo",
     W: "tabDetach",
+    // Vimium's bare p / P. They were pp / Pp, which is nobody's muscle memory.
+    p: "openClipboard",
+    P: "openClipboardTab",
     H: "back",
     L: "forward",
     h: "scrollLeft",
@@ -394,8 +400,6 @@ this.vimfoxCommands = (vf) => {
       p: "yankPretty",
       m: "yankMarkdown",
     },
-    p: { p: "openClipboard" },
-    P: { p: "openClipboardTab" },
   };
 
   // Bindings that stay live in insert mode — editing keys are most useful
