@@ -232,6 +232,22 @@ resolves `resource://vimfox/`.
   field puts you in insert. `isEditable()` in `child.js` covers contenteditable,
   `textarea`, `select` and every `input` type outside `NON_TEXT_INPUTS`
   (button/checkbox/radio/submit/reset/file/image/color/range).
+- **`activeElement` stops at a shadow HOST and at the `<iframe>` ELEMENT.** A
+  field inside either read as not editable, so clicking it did nothing.
+  `isEditable()` descends through `shadowRoot.activeElement` and
+  `contentDocument.activeElement` to the innermost one, and checks `designMode`
+  on the INNERMOST document — rich-text editors are a designMode iframe, so the
+  top document's is always off. Cross-origin iframes under Fission have their
+  own frame script and never reach this descent.
+- **A report is scheduled on `mousedown`, not just on focus events.** A field the
+  page autofocused is already focused, so clicking it fires NO focus event, and
+  nothing was ever reported — the click did nothing. That is why "click a text
+  input" only failed on some pages. Deferred like every other report, so focus
+  has landed by the time it runs.
+- `test-inputs.html` is the repro: plain, autofocused, shadow DOM, same-origin
+  iframe, designMode iframe, and a button as the control. All of it is
+  `child.js`, so **none of it is covered by the self-test** — click through the
+  six by hand.
 - Same-tab navigation forces normal too, via a `TabsProgressListener`
   `onLocationChange` that shares `resetForNewDocument()` with `TabSelect`.
   Gated on the SELECTED browser, `isTopLevel`, and NOT

@@ -1,0 +1,68 @@
+<title>insert-mode input test</title>
+<!--
+  Every shape of text field that used to NOT enter insert mode on click.
+  Open with ./run.sh and click each one — the mode chip must read insert.
+  Press Escape between them, since only Escape leaves insert.
+-->
+<style>
+  body { font: 15px sans-serif; margin: 2rem; max-width: 40rem; }
+  section { margin: 0 0 1.5rem; }
+  h2 { font-size: 14px; margin: 0 0 .3rem; font-weight: 600; }
+  p { margin: 0 0 .4rem; color: #555; font-size: 13px; }
+  input, textarea { font: inherit; padding: .3rem; width: 22rem; }
+  iframe { width: 24rem; height: 4rem; border: 1px solid #bbb; }
+</style>
+
+<h1>insert mode on click</h1>
+
+<section>
+  <h2>1. plain input</h2>
+  <p>The baseline. This always worked.</p>
+  <input id="plain" placeholder="click me">
+</section>
+
+<section>
+  <h2>2. autofocused input</h2>
+  <p>Focused by the page on load, so clicking it fires NO focus event.
+     Nothing was ever reported and the click did nothing.</p>
+  <input id="auto" autofocus placeholder="click me (already focused)">
+</section>
+
+<section>
+  <h2>3. input inside shadow DOM</h2>
+  <p>document.activeElement returns the HOST, not the input.</p>
+  <div id="host"></div>
+</section>
+
+<section>
+  <h2>4. input inside a same-origin iframe</h2>
+  <p>document.activeElement returns the &lt;iframe&gt; element.</p>
+  <iframe id="frame" srcdoc="<input style='font:15px sans-serif;padding:.3rem;width:20rem' placeholder='click me (in an iframe)'>"></iframe>
+</section>
+
+<section>
+  <h2>5. designMode iframe (rich-text editor)</h2>
+  <p>How TinyMCE and friends work. designMode is on the INNER document.</p>
+  <iframe id="rich"></iframe>
+</section>
+
+<section>
+  <h2>6. a button — must NOT enter insert</h2>
+  <p>The control case. Clicking this should leave the mode alone.</p>
+  <button>click me (stays put)</button>
+</section>
+
+<script>
+  const root = document.getElementById("host").attachShadow({ mode: "open" });
+  const shadowInput = document.createElement("input");
+  shadowInput.placeholder = "click me (in shadow DOM)";
+  shadowInput.style.cssText = "font:15px sans-serif;padding:.3rem;width:22rem";
+  root.append(shadowInput);
+
+  const rich = document.getElementById("rich");
+  rich.addEventListener("load", () => {
+    rich.contentDocument.designMode = "on";
+    rich.contentDocument.body.textContent = "click me (designMode)";
+  });
+  rich.src = "about:blank";
+</script>

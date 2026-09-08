@@ -13,11 +13,21 @@ const NON_TEXT_INPUTS = new Set([
 ]);
 
 function isEditable() {
-  const doc = content?.document;
+  let doc = content?.document;
   if (!doc) return false;
-  if (doc.designMode === "on") return true;
+  let el = doc.activeElement;
 
-  const el = doc.activeElement;
+  // activeElement stops at a shadow HOST and at the <iframe> ELEMENT, so a
+  // field inside either read as not editable and clicking it did nothing.
+  // Descend to the innermost one.
+  while (el?.shadowRoot?.activeElement || el?.contentDocument?.activeElement) {
+    if (el.contentDocument) doc = el.contentDocument;
+    el = el.shadowRoot?.activeElement ?? el.contentDocument.activeElement;
+  }
+
+  // Rich-text editors are a designMode document, usually inside an iframe —
+  // so this has to be the innermost document, not the top one.
+  if (doc.designMode === "on") return true;
   if (!el) return false;
   if (el.isContentEditable) return true;
 
@@ -39,7 +49,13 @@ function markGesture() {
   lastGesture = Date.now();
 }
 
-addEventListener("mousedown", markGesture, true);
+addEventListener("mousedown", (e) => {
+  markGesture(e);
+  // A field the page autofocused is ALREADY focused, so clicking it fires no
+  // focus event and nothing was ever reported — the click did nothing at all.
+  // Deferred like every other report, so focus has landed by the time it runs.
+  scheduleReport();
+}, true);
 addEventListener("keydown", markGesture, true);
 
 function report() {
