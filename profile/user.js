@@ -26,6 +26,12 @@ user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
 user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
 user_pref("browser.aboutwelcome.enabled", false);
 
+// Quick-find never closes itself. findbar.js arms _setFindCloseTimeout() for
+// every mode except FIND_NORMAL, and bails when the length is < 1 — so 0 is the
+// off switch. `/` already opens FIND_NORMAL; this is what keeps `'` open, which
+// has to stay FIND_LINKS to be links-only. Default is 4000.
+user_pref("accessibility.typeaheadfind.timeout", 0);
+
 // Vertical tabs, Firefox's own — no code, and it frees the top edge so the
 // address bar can move to the bottom (that half is one CSS rule in window.js).
 // visibility must be set too: the profile had it at "hide-sidebar", which

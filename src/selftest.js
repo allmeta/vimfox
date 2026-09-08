@@ -111,6 +111,12 @@ this.vimfoxSelfTest = (vf) => {
     }
     check(`cmds.${name} threw: ${threw}`, !threw);
   }
+  // `'` is FIND_LINKS, and findbar.js arms a close timeout for every mode but
+  // FIND_NORMAL. 0 is its off switch — it bails when the length is < 1.
+  check(
+    "quick-find closes itself: accessibility.typeaheadfind.timeout is not 0",
+    Services.prefs.getIntPref("accessibility.typeaheadfind.timeout", 4000) === 0
+  );
 
   check("keyset not in document", keyset.element.isConnected);
   check("command bar missing", !!document.getElementById("vomnibar"));

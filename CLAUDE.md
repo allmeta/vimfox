@@ -289,9 +289,11 @@ swallowing keys, or `y` would type into the page.
 - **`/` opens `FIND_NORMAL`, never `FIND_TYPEAHEAD`.** `findbar.js` arms
   `_setFindCloseTimeout()` for every mode except normal, so quick-find closed
   itself after `accessibility.typeaheadfind.timeout` — 4000ms in `greprefs.js`.
-  `'` must stay `FIND_LINKS` to be links-only and inherits that timeout; that is
-  inherent, not a bug. Untested: the findbar is created lazily and
-  asynchronously, so the self-test has no instance to read the mode off.
+  `'` must stay `FIND_LINKS` to be links-only, so it cannot escape that arming —
+  the profile sets the timeout to **0** instead, which is findbar.js's own off
+  switch (it bails when the length is < 1). The self-test asserts the pref,
+  because that is the half it can see: the findbar is created lazily and
+  asynchronously, so there is no instance to read `findMode` off.
 - **The findbar cannot do wildcards or regex.** `Finder.sys.mjs` exposes exactly
   three knobs — `caseSensitive`, `matchDiacritics`, `entireWord` — over
   `nsIFind`, which matches literal substrings. Wildcards mean our own find in
@@ -598,10 +600,13 @@ Firefox actually uses for popups, and check `chromehidden` on the
 documentElement. The self-test only asserts `toolbar.visible` is true in a real
 window, which guards the dangerous direction; the popup half is manual.
 
-Which monitor the window opens on is the compositor's call — Wayland gives a
-client no say, and `run.sh` cannot do it. The niri rule matching
-`app-id="vimfox"` in `~/.config/niri/rules.kdl` carries `open-on-output`, which
-is the whole reason for the `app_id` below.
+Which monitor the window opens on, and whether it steals focus, are both the
+compositor's call — Wayland gives a client no say, and `run.sh` cannot do
+either. The niri rule matching `app-id="vimfox"` in `~/.config/niri/rules.kdl`
+carries `open-on-output "eDP-1"` and `open-focused false`, which is the whole
+reason for the `app_id` below. `niri validate` checks the file, and
+`niri msg -j focused-window` after a launch checks the focus half actually
+took.
 
 `run.sh` sets `MOZ_APP_REMOTINGNAME=vimfox`, which is what gives the window a
 Wayland `app_id` of `vimfox` instead of `firefox` — so a compositor rule can
