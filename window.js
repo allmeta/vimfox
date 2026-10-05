@@ -671,6 +671,9 @@
     }));
   })();
 
+  const pinned = part("pinned").vimfoxPinned(strict({
+    win, document, gBrowser, SessionStore, log,
+  }));
 
   // ------------------------------------------------------------- ex cmds ---
 
@@ -733,6 +736,7 @@
       win.messageManager.removeMessageListener("VimFox:Ready", onReadyMsg);
       win.messageManager.removeMessageListener("VimFox:Selection", onSelectionMsg);
       keyset.destroy();
+      pinned.destroy();
       palette.destroy();
       whichKey.destroy();
       toast.destroy();
@@ -927,7 +931,7 @@
         win, document, gBrowser, HTML, log,
         BINDINGS, SEQUENCES, LABELS, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
         DOMAIN_RELEVANCY, ONE_MONTH_MS, EX, MODES,
-        cmds, keyset, palette, toast, whichKey, indicator, chromeStyle, toolbox,
+        cmds, keyset, pinned, SessionStore, palette, toast, whichKey, indicator, chromeStyle, toolbox,
         dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
         keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
         onContentFocus, onContentSelection, listCommands, yank, onLocationChange,

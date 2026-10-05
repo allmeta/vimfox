@@ -34,6 +34,7 @@ Mode lives in the parent. Parent is authoritative. Content only reports focus.
 | `src/keyset.js` | `<key>` elements, layout matching, built-in collision pairing | anything about what a key *means* |
 | `src/omnibar.js` | palette DOM and behaviour, Places queries, Vimium ranking, `highlight`/`shortenUrl`/`openInput` | anything not the palette |
 | `src/ui.js` | chip, which-key, toast, injected stylesheet, `paintMode` | reading the mode — it is TOLD, via `paintMode` |
+| `src/pinned.js` | pinned URL, middle-click reset, "Re-pin URL" menu item, startup reset | anything about modes or keys |
 | `src/selftest.js` | every assertion | anything the product needs at runtime |
 | `child.js` | content: focus + selection reporting, key swallowing, `gi`, horizontal scroll | any mode logic; it is told `swallow`, it does not decide |
 | `boot.js` | `resource://` registration, frame script, per-window attach | features |
@@ -690,24 +691,38 @@ vimfox blocks NO mouse events, in any mode. `child.js` swallows keys only;
 `mousedown` is listened to for the gesture timestamp and never cancelled. If a
 click stops working, it is not the mode machine.
 
-The one thing in this repo that touches clicks is the pinned-tab middle-click
-patch in `autoconfig.cfg`, which WRAPS Firefox's own `tabs` `on_click`.
-Anything thrown in that wrapper takes the built-in handler down with it and
-kills middle-click-to-close on every tab, so it uses no ambient globals
-(`Event` is not defined in the AutoConfig scope — read `BUBBLING_PHASE` off the
-event instance) and is wrapped in try/catch.
+The one thing in this repo that touches clicks is middle-click on a PINNED tab,
+in `src/pinned.js`. It is a CAPTURE listener on `gBrowser.tabContainer` that
+stops propagation, so Firefox's bubbling `on_click` (which closes the tab) never
+runs. Unpinned tabs fall straight through; the self-test asserts both halves.
+It used to be an `on_click` wrapper in `autoconfig.cfg`, which needed a sudo
+reinstall for every change. An old installed copy is harmless: it runs in the
+bubbling phase, which the capture listener already stopped.
 
-`handleEvent` looks up `this["on_" + type]` at dispatch time, so reassigning
-`on_click` does take effect.
+`system/` is only a SOURCE copy. Editing `autoconfig.cfg` in the repo changes
+nothing until `sudo system/install.sh` runs. Testing an autoconfig change
+without reinstalling measures the OLD file.
 
-Two things that cost real time here:
+## Pinned tabs
 
-- `system/` is only a SOURCE copy. Editing `autoconfig.cfg` in the repo changes
-  nothing until `sudo system/install.sh` runs. Testing an autoconfig change
-  without reinstalling measures the OLD file.
-- `_pinnedMclickPatched` reads false during the self-test, which runs before
-  the patch's own `load` listener. That is a timing artifact, NOT evidence the
-  patch is missing — it misled a whole diagnosis. Do not conclude from it.
+A pinned tab remembers the URL it was pinned at, as the SessionStore custom tab
+value `vimfoxPinnedUrl`, so it survives a restart. Middle-click resets it:
+unloaded if it is in the background, reloaded if it is selected. Startup resets
+every pinned tab that has drifted. The tab context menu has "Re-pin URL".
+
+- The reset is `SessionStore.setTabState`, starting from `getTabState`.
+  `restoreTab` re-applies `pinned` and `extData` from the state it is GIVEN, so
+  a hand-built state unpins the tab and forgets the URL. Discard first, then
+  set: on a lazy browser the new URL goes straight into the lazy state.
+- `getTabState` THROWS ("Default view is not tracked") until SessionStore
+  tracks the window, which is after `load`. The self-test runs its pinned
+  checks after `promiseAllWindowsRestored` for that reason.
+- Session restore sets `extData` BEFORE it calls `pinTab`, so `TabPinned` sees
+  a restored tab's value and does not overwrite it.
+- The startup reset listens for `sessionstore-windows-restored`, which fires
+  once per process, so a window opened later resets nothing.
+- A fresh about:blank tab has no history entry, so pinning one records nothing.
+  `pinnedUrl()` records the current URL on first use instead.
 
 ## tabbrowser API drift
 

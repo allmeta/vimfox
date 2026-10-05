@@ -17,7 +17,7 @@ this.vimfoxSelfTest = (vf) => {
     win, document, gBrowser, HTML, log,
     BINDINGS, SEQUENCES, LABELS, CARET_MOTIONS, CARET_EXTRA, CARET_PREF, COUNT_MAX,
     DOMAIN_RELEVANCY, ONE_MONTH_MS, EX, MODES, fallbackApplies, fallbackWants,
-    cmds, keyset, palette, toast, whichKey, indicator, chromeStyle, toolbox,
+    cmds, keyset, pinned, SessionStore, palette, toast, whichKey, indicator, chromeStyle, toolbox,
     dispatch, run, setMode, setPending, takeCount, isBound, caretKey,
     keyNameFor, chromeInputFocused, focusedChromeElement, refreshMode,
     onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
@@ -297,10 +297,8 @@ this.vimfoxSelfTest = (vf) => {
     gBrowser.removeTab(extra);
   }
 
-  // Middle-click closes a tab. vimfox blocks no mouse events anywhere — but
-  // the pinned-tab patch in autoconfig.cfg WRAPS Firefox's on_click, and
-  // anything thrown in that wrapper takes the built-in handler with it. That
-  // is how middle-click-to-close died on every tab.
+  // Middle-click closes an unpinned tab. pinned.js intercepts it in capture on
+  // the same container, so a wrong filter there kills close on every tab.
   {
     const extra = gBrowser.addTab("about:blank", {
       triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
@@ -310,12 +308,54 @@ this.vimfoxSelfTest = (vf) => {
     );
     // removeTab animates, so the tab is marked closing before it is gone.
     check(
-      `middle click did not close the tab (autoconfig pinned-tab patch ` +
-        `applied: ${!!gBrowser.tabContainer._pinnedMclickPatched})`,
+      "middle click did not close an unpinned tab",
       extra.closing || !extra.isConnected
     );
     if (extra.isConnected && !extra.closing) gBrowser.removeTab(extra);
   }
+
+  // Middle-click on a pinned tab resets it to its pinned URL. Asserts the
+  // session STATE: setTabState re-applies `pinned` and extData from what it is
+  // given, so a reset that dropped either would unpin or forget the tab.
+  // Deferred to the end: SessionStore does not track the window until after
+  // load, and getTabState throws until it does.
+  const pinnedChecks = () => {
+    const extra = gBrowser.addTab("about:blank", {
+      triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+    });
+    // A fresh about:blank tab has no history entry to record.
+    SessionStore.setTabState(extra, { entries: [{ url: "about:mozilla" }] });
+    gBrowser.pinTab(extra);
+    check(
+      `pinning did not record the URL (got "${SessionStore.getCustomTabValue(extra, pinned.KEY)}")`,
+      SessionStore.getCustomTabValue(extra, pinned.KEY) === "about:mozilla"
+    );
+    SessionStore.setCustomTabValue(extra, pinned.KEY, "about:robots");
+    extra.dispatchEvent(
+      new win.MouseEvent("click", { bubbles: true, button: 1, view: win })
+    );
+    const state = JSON.parse(SessionStore.getTabState(extra));
+    check("middle click closed a pinned tab", !extra.closing && extra.isConnected);
+    check("pinned reset unpinned the tab", extra.pinned);
+    check(
+      `pinned reset did not replace history (${JSON.stringify(state.entries.map((x) => x.url))})`,
+      state.entries.length === 1 && state.entries[0].url === "about:robots"
+    );
+    check(
+      "pinned reset forgot the pinned URL",
+      SessionStore.getCustomTabValue(extra, pinned.KEY) === "about:robots"
+    );
+    check(
+      "no Re-pin URL item in the tab context menu",
+      document.querySelector("#tabContextMenu > #vimfox-repin")
+    );
+    gBrowser.unpinTab(extra);
+    check(
+      "unpinning kept the pinned URL",
+      !SessionStore.getCustomTabValue(extra, pinned.KEY)
+    );
+    if (!extra.closing) gBrowser.removeTab(extra);
+  };
 
   // Caret mode. Driven entirely by content's selection report, so drive it
   // the same way here.
@@ -925,9 +965,14 @@ this.vimfoxSelfTest = (vf) => {
     keyset.passthroughExit.hasAttribute("disabled")
   );
 
-  log(
-    fails.length
-      ? `SELFTEST FAILED (${fails.length}): ${fails.join("; ")}`
-      : "SELFTEST PASSED"
-  );
+  SessionStore.promiseAllWindowsRestored
+    .then(pinnedChecks)
+    .catch((ex) => fails.push(`pinned checks threw: ${ex}`))
+    .then(() =>
+      log(
+        fails.length
+          ? `SELFTEST FAILED (${fails.length}): ${fails.join("; ")}`
+          : "SELFTEST PASSED"
+      )
+    );
 };
