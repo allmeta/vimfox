@@ -165,6 +165,18 @@ function passThrough(e) {
   if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "c" || e.key === "C")) {
     return true;
   }
+  // Escape, when the parent did not already take it. Our Escape key is
+  // reserved, so whenever it IS ours — insert, caret, a pending combo — it is
+  // consumed in the parent and never arrives here at all. Reaching this line
+  // means nothing of ours wants it, and swallowing it killed both the page's
+  // modals and Firefox's own Escape (key_stop, which is live in normal mode
+  // precisely because ours is disabled).
+  // Bare only: Shift+Escape is passthrough mode's exit, and Firefox's own
+  // Shift+Escape (the process manager) is suppressed only while that key of
+  // ours is enabled.
+  if (e.key === "Escape" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    return true;
+  }
   return SCROLL_KEYS.has(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey;
 }
 

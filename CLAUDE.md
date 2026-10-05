@@ -362,6 +362,17 @@ of it fails the test.
 Escape is NOT in `keys` (the insert-disable list). Disabling the key that
 leaves insert strands you.
 
+Disabling our XUL key is only HALF of handing Escape over. `passThrough()` in
+`child.js` has to allow it too, or content swallows it and it reaches neither
+the page's modals nor Firefox — `key_stop` is non-reserved, so it runs AFTER
+content and a `preventDefault` there kills it, exactly like F12. This file
+claimed for a long time that normal mode gave Escape to the page; it did not.
+Only the BARE key is allowed through: Shift+Escape is passthrough mode's exit,
+and Firefox's own Shift+Escape (the process manager) is suppressed only while
+that key of ours is enabled. Whenever Escape IS ours it is reserved, so it is
+consumed in the parent and never reaches content at all — which is why the
+allowlist needs no mode logic.
+
 ## Scrolling
 
 **A scroll command only reaches the page if the page has FOCUS.** `goDoCommand`
