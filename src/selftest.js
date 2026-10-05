@@ -535,13 +535,11 @@ this.vimfoxSelfTest = (vf) => {
   }
 
   // The scroll commands get the same treatment, for the same reason: a wrong
-  // name is caught by scrollCmd and logged, so h/l would just do nothing.
-  // cmd_scrollLeft and cmd_scrollRight were believed not to exist, which is how
-  // horizontal scrolling ended up as content code that only ever moved the
-  // top-level window's root scroller.
+  // name is caught by scrollCmd and logged, so the key would just do nothing.
+  // Only these four are commands now — hjkl send arrow keys to content, which
+  // the self-test cannot see at all.
   for (const cmd of [
-    "cmd_scrollLineDown", "cmd_scrollLineUp", "cmd_scrollLeft",
-    "cmd_scrollRight", "cmd_scrollPageDown", "cmd_scrollPageUp",
+    "cmd_scrollPageDown", "cmd_scrollPageUp",
     "cmd_scrollTop", "cmd_scrollBottom",
   ]) {
     let controller = null;

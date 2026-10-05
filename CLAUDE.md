@@ -419,35 +419,58 @@ focused remote `<browser>` is the chrome document's activeElement.
 either. The self-test asserts the dispatcher trap itself, so it cannot be
 reintroduced.
 
-Every scroll is a Gecko command through `goDoCommand`, `hjkl` included.
-**`cmd_scrollLeft` and `cmd_scrollRight` DO exist** — this file claimed they did
-not, and h/l were content code (`content.scrollBy`) as a result, which scrolls
-only the top-level window's ROOT scroller: a wide table or a code block inside a
-div never moved, and the message never reached an iframe at all. Verify the set
-with `strings /usr/lib/firefox/libxul.so | grep '^cmd_scroll'`, the same way the
-caret commands are verified.
+**`hjkl` are synthesized ARROW KEYS, not scroll commands** — qutebrowser's
+answer (`WebEngineScroller._repeated_key_press(Qt.Key.Key_Left, count)` in
+`webenginetab.py`), reached deliberately: an arrow drives whatever the page has
+focused as well as scrolling, so j/k step a focused list, gallery or carousel
+instead of only moving the viewport. `d`/`u`/`gg`/`G` are still commands, and so
+is everything else that scrolls.
 
-The command dispatcher routes to whatever scroller has focus, which is the whole
-reason j/k worked everywhere while h/l did not. The self-test asserts a
-controller exists for each of the eight names — a wrong one is swallowed by
+The cost, accepted: hjkl now die with a hung content process, which is the one
+thing the reserved keyset exists to survive. A dead process has nothing to
+scroll either way.
+
+- `nsIDOMWindowUtils.sendKeyEvent` is GONE — not a function on this build. An
+  `nsITextInputProcessor` (`@mozilla.org/text-input-processor;1`) is what
+  EventUtils uses and the only thing left that makes a TRUSTED key. A
+  `new KeyboardEvent` dispatched by hand is untrusted and has NO default
+  action: page listeners would fire and nothing would scroll.
+- `beginInputTransactionForTests` must be called before every send and checked
+  — it returns false when it cannot take the window. It does NOT need the
+  window to be OS-focused; that was verified with a probe on an unfocused
+  window, so this is unlike the clipboard.
+- Send keydown + keyup only. The processor synthesizes keypress itself.
+- It rests on arrows being in `PASS_KEYS` in `child.js`: the swallow listener
+  runs on our own synthesized keys too and would `preventDefault` them.
+- `SCROLL_LINES` (3) is now arrow presses per keystroke, which keeps the scroll
+  speed hjkl always had. Drop it to 1 if stepping a focused widget three at a
+  time turns out to be the more annoying half.
+
+**The self-test cannot see any of this** — it is all in `child.js`, and a
+synthesized arrow proves nothing in the parent. Verify by hand. The four
+commands that remain (`cmd_scrollPageDown`/`Up`, `cmd_scrollTop`/`Bottom`) still
+get their controller assertion, because a wrong name is swallowed by
 `scrollCmd`'s catch and the key just does nothing.
 
-qutebrowser reaches the same place from the other end: `h`/`j`/`k`/`l` are bound
-to `scroll left|down|up|right` (`configdata.yml`), and on the QtWebEngine
-backend `WebEngineScroller` implements those as synthesized arrow-key presses
-(`_repeated_key_press(Qt.Key.Key_Left, count)` in `webenginetab.py`). Same
-outcome — the engine's own scroll routing decides what moves — by a different
-mechanism, because Qt gives it no command dispatcher to talk to.
+`cmd_scrollLeft` and `cmd_scrollRight` DO exist, whatever this file used to
+claim; `strings /usr/lib/firefox/libxul.so | grep '^cmd_scroll'` is how to
+check. They are simply not what h/l use any more. The old dispatcher routing —
+the command goes to whatever scroller has focus — is still why the focus work
+above matters: an arrow's default action walks the same focus ring.
 
 ## Normal mode swallows everything
 
 Content kills keydown/keypress/keyup. Mode is broadcast; new frames send
 `VimFox:Ready` to ask.
 
-`passThrough()` in `child.js` is the allowlist. Two separate reasons for it:
+`PASS_KEYS` + `passThrough()` in `child.js` are the allowlist. Three separate
+reasons for it:
 
-- Arrows/space/PageUp/Down: we bind none of them, so scrolling is the page's
-  own default action. Swallowing them just meant nothing scrolled.
+- Arrows/space/PageUp/Down/Home/End: we bind none of them, so scrolling is the
+  page's own default action. Swallowing them just meant nothing scrolled. The
+  arrows are also what hjkl synthesize, so removing them kills hjkl too.
+- Enter: it activates whatever the page has focused, and we bind nothing to it.
+- Escape: see the Escape schedule above.
 - F-keys and Ctrl+Shift chords: these are FIREFOX's keys and, unlike ours, are
   NOT `reserved` — a non-reserved chrome key is processed AFTER content, so a
   `preventDefault` in the frame script kills it outright. That is why F12 and

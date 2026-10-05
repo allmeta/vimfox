@@ -162,9 +162,15 @@ this.vimfoxCommands = (vf) => {
 
   // ------------------------------------------------------------ commands ---
 
+  // hjkl send arrow keys into content instead of scrolling directly, so they do
+  // whatever an arrow would: step a focused list or gallery, move the caret,
+  // and scroll as the arrow's default action. SCROLL_LINES presses per key
+  // keeps the scroll speed hjkl have always had.
+  const arrow = (dir) => send("VimFox:Arrow", { dir, times: SCROLL_LINES });
+
   const cmds = {
-    scrollDown:  () => scrollCmd("cmd_scrollLineDown", SCROLL_LINES),
-    scrollUp:    () => scrollCmd("cmd_scrollLineUp", SCROLL_LINES),
+    scrollDown:  () => arrow("down"),
+    scrollUp:    () => arrow("up"),
     halfDown:    () => scrollCmd("cmd_scrollPageDown"),
     halfUp:      () => scrollCmd("cmd_scrollPageUp"),
     top:         () => scrollCmd("cmd_scrollTop"),
@@ -204,14 +210,8 @@ this.vimfoxCommands = (vf) => {
     // `/` used to leak to the page — Google binds it to its own search box.
     find:        () => openFind(),
     findLinks:   () => openFind(true),
-    // cmd_scrollLeft/Right DO exist — `strings libxul.so | grep ^cmd_scroll`.
-    // These used to be content code (`content.scrollBy`), which scrolled only
-    // the top-level window's root scroller: a wide table or a code block inside
-    // a div never moved, and the message never reached an iframe at all. The
-    // command dispatcher routes to whatever scroller actually has focus, which
-    // is why j/k always worked and h/l did not.
-    scrollLeft:  () => scrollCmd("cmd_scrollLeft", SCROLL_LINES),
-    scrollRight: () => scrollCmd("cmd_scrollRight", SCROLL_LINES),
+    scrollLeft:  () => arrow("left"),
+    scrollRight: () => arrow("right"),
 
     // --- tabs -------------------------------------------------------------
     // Alternate tab. Firefox tracks no such thing, so TabSelect's own

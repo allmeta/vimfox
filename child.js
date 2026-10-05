@@ -144,16 +144,18 @@ addMessageListener("VimFox:Mode", (msg) => {
 
 // Keys normal mode does NOT swallow.
 //
-// Scrolling: we bind no arrows, so scrolling them is the page's own default
-// action. Swallowing them just meant nothing scrolled.
+// Arrows, Home/End, PageUp/Down, space: we bind none of them, so scrolling
+// them is the page's own default action. Swallowing them just meant nothing
+// scrolled. Enter is here for the same reason from the other side — it
+// activates whatever the page has focused, and we bind nothing to it.
 //
 // Function keys and Ctrl+Shift chords: these are Firefox's, and unlike ours
 // they are NOT reserved — a non-reserved chrome key is processed AFTER content,
 // so preventDefault here killed them outright. That is why F12 and
 // Ctrl+Shift+C did nothing in normal mode.
-const SCROLL_KEYS = new Set([
+const PASS_KEYS = new Set([
   "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-  "PageUp", "PageDown", "Home", "End", " ",
+  "PageUp", "PageDown", "Home", "End", " ", "Enter",
 ]);
 
 function passThrough(e) {
@@ -177,7 +179,7 @@ function passThrough(e) {
   if (e.key === "Escape" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
     return true;
   }
-  return SCROLL_KEYS.has(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey;
+  return PASS_KEYS.has(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey;
 }
 
 // Registered after markGesture so that still runs; stopImmediatePropagation
@@ -195,6 +197,42 @@ for (const type of ["keydown", "keypress", "keyup"]) {
     true
   );
 }
+
+// hjkl are synthesized ARROW KEYS rather than scroll commands, so they drive
+// whatever the page has focused — a list, a gallery, the caret — and scrolling
+// comes along as the arrow's own default action.
+//
+// This rests on arrows being in PASS_KEYS above: the swallow listener runs on
+// our own synthesized keys too, and would preventDefault them like any other.
+const ARROW_KEYS = {
+  left: ["ArrowLeft", 37],
+  up: ["ArrowUp", 38],
+  right: ["ArrowRight", 39],
+  down: ["ArrowDown", 40],
+};
+let tip = null;
+addMessageListener("VimFox:Arrow", (msg) => {
+  const arrow = ARROW_KEYS[msg.data.dir];
+  if (!arrow || !content) return;
+  const [key, keyCode] = arrow;
+  // nsIDOMWindowUtils.sendKeyEvent is GONE — it is not a function on this
+  // build. A TextInputProcessor is what EventUtils uses and the only thing
+  // left that produces a TRUSTED key; a `new KeyboardEvent` dispatched by hand
+  // is untrusted and has NO default action, so it would reach page listeners
+  // but never scroll. keypress is the processor's to synthesize, not ours.
+  tip ||= Cc["@mozilla.org/text-input-processor;1"].createInstance(
+    Ci.nsITextInputProcessor
+  );
+  // Returns false if it cannot take the window; dispatching anyway would
+  // throw. The window does NOT have to be OS-focused — verified with a probe
+  // on an unfocused window, unlike the clipboard, which really does need it.
+  if (!tip.beginInputTransactionForTests(content)) return;
+  const ev = new content.KeyboardEvent("", { key, code: key, keyCode });
+  for (let i = 0; i < (msg.data.times || 1); i++) {
+    tip.keydown(ev);
+    tip.keyup(ev);
+  }
+});
 
 // A freshly loaded frame has no idea what mode the window is in.
 sendAsyncMessage("VimFox:Ready", {});
