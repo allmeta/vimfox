@@ -324,6 +324,11 @@ this.vimfoxCommands = (vf) => {
     N: "findPrev",
     "/": "find",
     "?": "find",
+    // Firefox's own Ctrl+F is non-reserved, so it runs AFTER content and the
+    // swallow in normal mode killed it. Ours opens the same findbar in the
+    // same FIND_NORMAL mode. Deliberately NOT ALWAYS_ON: insert mode releases
+    // our key and hands Ctrl+F back to Firefox, which does the same thing.
+    "C-f": "find",
     "'": "findLinks",
     // Vimium's chord. `gl` below is an alias, for layouts where `^` is a dead
     // key and never arrives as a keypress at all.
