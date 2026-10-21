@@ -275,23 +275,24 @@ this.vimfoxSelfTest = (vf) => {
     });
     const restore = gBrowser.selectedTab;
     gBrowser.selectedTab = extra;
-    const before = extra._tPos;
+    const pos = () => gBrowser.tabs.indexOf(extra);
+    const before = pos();
     cmds.tabMoveLeft();
     check(
-      `tabMoveLeft did not move the tab (${before} -> ${extra._tPos})`,
-      extra._tPos === before - 1
+      `tabMoveLeft did not move the tab (${before} -> ${pos()})`,
+      pos() === before - 1
     );
     cmds.tabMoveRight();
     check(
-      `tabMoveRight did not move the tab (${before} -> ${extra._tPos})`,
-      extra._tPos === before
+      `tabMoveRight did not move the tab (${before} -> ${pos()})`,
+      pos() === before
     );
     // Wrap: from the last position, right goes back to the front.
     gBrowser.moveTabTo(extra, { tabIndex: gBrowser.tabs.length - 1 });
     cmds.tabMoveRight();
     check(
-      `tabMoveRight did not wrap (landed at ${extra._tPos})`,
-      extra._tPos < gBrowser.tabs.length - 1
+      `tabMoveRight did not wrap (landed at ${pos()})`,
+      pos() < gBrowser.tabs.length - 1
     );
     gBrowser.selectedTab = restore;
     gBrowser.removeTab(extra);
@@ -345,14 +346,50 @@ this.vimfoxSelfTest = (vf) => {
       "pinned reset forgot the pinned URL",
       SessionStore.getCustomTabValue(extra, pinned.KEY) === "about:robots"
     );
+    for (const id of ["vimfox-repin", "vimfox-tint", "vimfox-tint-clear"]) {
+      check(
+        `no #${id} item in the tab context menu`,
+        document.querySelector(`#tabContextMenu > #${id}`)
+      );
+    }
     check(
-      "no Re-pin URL item in the tab context menu",
-      document.querySelector("#tabContextMenu > #vimfox-repin")
+      "no colour picker for the tint",
+      document.getElementById("vimfox-tint-picker")?.type === "color"
     );
+
+    // The tint. Assert the COMPUTED paint, not the stored string: the variable
+    // landing on the tab with nothing reading it looks identical from here.
+    // It is a background-IMAGE so it survives the selected state, so that is
+    // what to read — a background-color check would pass on a rule that the
+    // selected tab overrides.
+    pinned.setTint(extra, "#ff0000");
+    const bg = extra.querySelector(".tab-background");
+    const paint = () => win.getComputedStyle(bg).backgroundImage;
+    check("tint did not mark the tab", extra.hasAttribute("vimfox-tint"));
+    // color-mix computes to the srgb colour function, NOT rgb(): #ff0000 at
+    // 40% serializes as "color(srgb 1 0 0 / 0.4)".
+    check(
+      `tint did not reach the tab background (${paint()})`,
+      /srgb 1 0 0/.test(paint())
+    );
+    check(
+      "the tint is a background-color, which the selected state overrides",
+      paint().includes("gradient")
+    );
+    pinned.setTint(extra, null);
+    check("clearing the tint left the mark", !extra.hasAttribute("vimfox-tint"));
+    check(`clearing the tint left the colour (${paint()})`, !/srgb 1 0 0/.test(paint()));
+
+    pinned.setTint(extra, "#00ff00");
     gBrowser.unpinTab(extra);
     check(
       "unpinning kept the pinned URL",
       !SessionStore.getCustomTabValue(extra, pinned.KEY)
+    );
+    check(
+      "unpinning kept the tint",
+      !SessionStore.getCustomTabValue(extra, pinned.TINT) &&
+        !extra.hasAttribute("vimfox-tint")
     );
     if (!extra.closing) gBrowser.removeTab(extra);
   };

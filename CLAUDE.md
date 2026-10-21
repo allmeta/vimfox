@@ -758,6 +758,35 @@ every pinned tab that has drifted. The tab context menu has "Re-pin URL".
 - A fresh about:blank tab has no history entry, so pinning one records nothing.
   `pinnedUrl()` records the current URL on first use instead.
 
+Each pinned tab also carries a **tint** — `vimfoxTint`, stored and restored the
+same way — because several tabs pinned to one site share a favicon and nothing
+else tells them apart. "Tint…" in the tab context menu opens Firefox's own
+colour picker, an `<html:input type="color">` parked in the chrome document.
+
+- The favicon is left ALONE; the tint is the tab background only.
+- It is a background-**IMAGE** (a two-stop gradient of one colour), not a
+  background-color. Firefox sets `background-color` on `.tab-background` for
+  the selected and hover states, so a colour of ours either loses to those or
+  beats them and hides them. An image paints on top of the theme's colour, so
+  the tint shows in every state and the tab still reads as selected.
+- Selected pinned tabs get a flat white `outline` at `-2px` offset.
+  Firefox's own selected outline is a theme colour that vanishes against a
+  tint, and a non-inset outline is clipped by the tab strip.
+- `pinned.js` owns the colour and puts it on the tab as `--vimfox-tint` plus a
+  `[vimfox-tint]` attribute; `ui.js` decides what that paints. Neither half
+  works alone, and the self-test asserts the COMPUTED `background-image` for
+  that reason — the variable landing on the tab with nothing reading it looks
+  identical from the parent, and a background-COLOR check would pass on a rule
+  the selected state overrides.
+- `color-mix` computes to the srgb colour FUNCTION, not `rgb()`: `#ff0000` at
+  40% reads back as `color(srgb 1 0 0 / 0.4)`. A self-test that greps for
+  `255, 0, 0` fails on a stylesheet that works.
+- `showPicker()` is the documented way in and needs user activation, which a
+  menuitem's `command` event supplies; it falls back to `.click()`, which opens
+  the same dialog, rather than failing silently.
+- The picker listens on `input`, not `change`, so dragging around the colour
+  wheel previews live on the tab.
+
 ## tabbrowser API drift
 
 `gBrowser.moveTabTo(tab, index)` became `moveTabTo(tab, { tabIndex })` in
@@ -765,6 +794,12 @@ FF152. A bare number destructures to `undefined` and the call is a SILENT
 no-op — no throw, no log, the tab just does not move. Assume any other
 `gBrowser` call can go the same way, and prefer a self-test that observes the
 effect over one that only checks the call happened.
+
+FF158 removed `tab._tPos` (reads `undefined`, so the index math went NaN and
+`gJ`/`gK` silently stopped) — use `gBrowser.tabs.indexOf(tab)`. It also moved
+`SessionStore.sys.mjs` from `resource:///modules/sessionstore/` to `moz-src:///`,
+and the import threw at the top of window.js, so NOTHING loaded. window.js now
+reads browser.xhtml's own `SessionStore` global, which follows the module.
 
 `discardBrowser(tab, force)` needs `force = true` — what Firefox's own "Unload
 tab" passes. Without it the browser IS discarded but never gets the

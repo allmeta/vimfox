@@ -116,6 +116,34 @@ this.vimfoxUI = (vf) => {
       overflow: hidden; text-overflow: ellipsis;
     }
     #vimfox-toast[hidden] { display: none; }
+
+    /* Per-tab tint, for telling apart several tabs pinned to the SAME site —
+       six Azure DevOps tabs share one favicon. pinned.js owns the colour and
+       puts it on the tab as --vimfox-tint; this only decides what it paints.
+       The favicon itself is left alone.
+
+       A background-IMAGE, not background-color: Firefox sets background-color
+       on .tab-background for the selected and hover states, so a colour of
+       ours is either overridden or overrides those. An image paints ON TOP of
+       whatever colour the theme chose, which is what makes the tint show in
+       every state — selected, hovered, unloaded — while the tab still reads as
+       selected underneath. Literal percentage: a var() in color-mix's
+       percentage slot resolves to 0%. */
+    .tabbrowser-tab[vimfox-tint] .tab-background {
+      background-image: linear-gradient(
+        color-mix(in srgb, var(--vimfox-tint) 40%, transparent),
+        color-mix(in srgb, var(--vimfox-tint) 40%, transparent)
+      );
+    }
+
+    /* Which pinned tab you are actually on. Firefox's own selected outline is
+       a theme colour that disappears against a tint, so pinned tabs get a flat
+       white one. Inset, like Firefox's own multiselect outline, or it is
+       clipped by the tab strip. */
+    .tabbrowser-tab[pinned] .tab-background[selected] {
+      outline: 2px solid #fff;
+      outline-offset: -2px;
+    }
   `;
 
   // Transient confirmation, bottom-right. Shares the which-key slot: a yank

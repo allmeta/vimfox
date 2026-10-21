@@ -136,7 +136,8 @@ this.vimfoxCommands = (vf) => {
     const n = gBrowser.tabs.length;
     // Wraps, like J/K do when cycling tabs — pushing the last tab right sends
     // it to the front rather than stopping dead against the edge.
-    const target = (tab._tPos + dir + n) % n;
+    // FF158 dropped _tPos.
+    const target = (gBrowser.tabs.indexOf(tab) + dir + n) % n;
     // FF152 takes an options object. A bare index destructures to undefined and
     // the call becomes a silent no-op — no error, the tab just sits there.
     gBrowser.moveTabTo(tab, { tabIndex: target });
