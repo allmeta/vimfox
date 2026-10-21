@@ -61,6 +61,9 @@ this.vimfoxUI = (vf) => {
     /* Normal mode is where you live, so the toolbar keeps the theme's own
        colour. The chip still says NORMAL in blue; only the panel goes quiet. */
     :root[data-vimfox-mode="normal"] #navigator-toolbox { background-color: transparent; }
+    /* Outside nova the bookmarks bar is never a titlebar, so it keeps an opaque
+       toolbar colour and splits from #nav-bar. Nova makes it one; so do we. */
+    #PersonalToolbar { background-color: transparent; }
 
     #vimfox-mode {
       display: flex;
