@@ -18,19 +18,8 @@
   const { PlacesUtils } = ChromeUtils.importESModule(
     "resource://gre/modules/PlacesUtils.sys.mjs"
   );
-  // FF156 moved it to moz-src:///; the old resource:/// URL throws there.
-  // Try the new home first, the old one for anything older.
-  const { SessionStore } = (() => {
-    try {
-      return ChromeUtils.importESModule(
-        "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs"
-      );
-    } catch {
-      return ChromeUtils.importESModule(
-        "resource:///modules/sessionstore/SessionStore.sys.mjs"
-      );
-    }
-  })();
+  // browser.xhtml's own lazy global: FF158 moved the module to moz-src:///.
+  const { SessionStore } = win;
 
   const HTML = "http://www.w3.org/1999/xhtml";
   // cmd_scrollLineDown moves one line; 3 per keypress feels like Vimium's 60px.
@@ -682,7 +671,7 @@
   })();
 
   const pinned = part("pinned").vimfoxPinned(strict({
-    win, document, gBrowser, SessionStore, log,
+    win, document, gBrowser, SessionStore, HTML, log,
   }));
 
   // ------------------------------------------------------------- ex cmds ---

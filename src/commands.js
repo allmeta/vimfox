@@ -136,8 +136,7 @@ this.vimfoxCommands = (vf) => {
     const n = gBrowser.tabs.length;
     // Wraps, like J/K do when cycling tabs — pushing the last tab right sends
     // it to the front rather than stopping dead against the edge.
-    // indexOf, not tab._tPos: FF156 renamed that to tab.index, and undefined
-    // made the target NaN — the same silent no-op as the moveTabTo drift.
+    // FF158 dropped _tPos.
     const target = (gBrowser.tabs.indexOf(tab) + dir + n) % n;
     // FF152 takes an options object. A bare index destructures to undefined and
     // the call becomes a silent no-op — no error, the tab just sits there.
@@ -164,9 +163,15 @@ this.vimfoxCommands = (vf) => {
 
   // ------------------------------------------------------------ commands ---
 
+  // hjkl send arrow keys into content instead of scrolling directly, so they do
+  // whatever an arrow would: step a focused list or gallery, move the caret,
+  // and scroll as the arrow's default action. SCROLL_LINES presses per key
+  // keeps the scroll speed hjkl have always had.
+  const arrow = (dir) => send("VimFox:Arrow", { dir, times: SCROLL_LINES });
+
   const cmds = {
-    scrollDown:  () => scrollCmd("cmd_scrollLineDown", SCROLL_LINES),
-    scrollUp:    () => scrollCmd("cmd_scrollLineUp", SCROLL_LINES),
+    scrollDown:  () => arrow("down"),
+    scrollUp:    () => arrow("up"),
     halfDown:    () => scrollCmd("cmd_scrollPageDown"),
     halfUp:      () => scrollCmd("cmd_scrollPageUp"),
     top:         () => scrollCmd("cmd_scrollTop"),
@@ -206,14 +211,8 @@ this.vimfoxCommands = (vf) => {
     // `/` used to leak to the page — Google binds it to its own search box.
     find:        () => openFind(),
     findLinks:   () => openFind(true),
-    // cmd_scrollLeft/Right DO exist — `strings libxul.so | grep ^cmd_scroll`.
-    // These used to be content code (`content.scrollBy`), which scrolled only
-    // the top-level window's root scroller: a wide table or a code block inside
-    // a div never moved, and the message never reached an iframe at all. The
-    // command dispatcher routes to whatever scroller actually has focus, which
-    // is why j/k always worked and h/l did not.
-    scrollLeft:  () => scrollCmd("cmd_scrollLeft", SCROLL_LINES),
-    scrollRight: () => scrollCmd("cmd_scrollRight", SCROLL_LINES),
+    scrollLeft:  () => arrow("left"),
+    scrollRight: () => arrow("right"),
 
     // --- tabs -------------------------------------------------------------
     // Alternate tab. Firefox tracks no such thing, so TabSelect's own
@@ -326,6 +325,11 @@ this.vimfoxCommands = (vf) => {
     N: "findPrev",
     "/": "find",
     "?": "find",
+    // Firefox's own Ctrl+F is non-reserved, so it runs AFTER content and the
+    // swallow in normal mode killed it. Ours opens the same findbar in the
+    // same FIND_NORMAL mode. Deliberately NOT ALWAYS_ON: insert mode releases
+    // our key and hands Ctrl+F back to Firefox, which does the same thing.
+    "C-f": "find",
     "'": "findLinks",
     // Vimium's chord. `gl` below is an alias, for layouts where `^` is a dead
     // key and never arrives as a keypress at all.
