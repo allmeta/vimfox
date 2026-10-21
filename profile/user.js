@@ -26,11 +26,8 @@ user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
 user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
 user_pref("browser.aboutwelcome.enabled", false);
 
-// Quick-find never closes itself. findbar.js arms _setFindCloseTimeout() for
-// every mode except FIND_NORMAL, and bails when the length is < 1 — so 0 is the
-// off switch. `/` already opens FIND_NORMAL; this is what keeps `'` open, which
-// has to stay FIND_LINKS to be links-only. Default is 4000.
-user_pref("accessibility.typeaheadfind.timeout", 0);
+// accessibility.typeaheadfind.timeout is set by boot.js, not here — every
+// vimfox profile needs it, not just this one.
 
 // Vertical tabs, Firefox's own — no code, and it frees the top edge so the
 // address bar can move to the bottom (that half is one CSS rule in window.js).

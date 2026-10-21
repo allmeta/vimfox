@@ -18,9 +18,19 @@
   const { PlacesUtils } = ChromeUtils.importESModule(
     "resource://gre/modules/PlacesUtils.sys.mjs"
   );
-  const { SessionStore } = ChromeUtils.importESModule(
-    "resource:///modules/sessionstore/SessionStore.sys.mjs"
-  );
+  // FF156 moved it to moz-src:///; the old resource:/// URL throws there.
+  // Try the new home first, the old one for anything older.
+  const { SessionStore } = (() => {
+    try {
+      return ChromeUtils.importESModule(
+        "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs"
+      );
+    } catch {
+      return ChromeUtils.importESModule(
+        "resource:///modules/sessionstore/SessionStore.sys.mjs"
+      );
+    }
+  })();
 
   const HTML = "http://www.w3.org/1999/xhtml";
   // cmd_scrollLineDown moves one line; 3 per keypress feels like Vimium's 60px.

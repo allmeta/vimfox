@@ -275,23 +275,26 @@ this.vimfoxSelfTest = (vf) => {
     });
     const restore = gBrowser.selectedTab;
     gBrowser.selectedTab = extra;
-    const before = extra._tPos;
+    // indexOf, not extra._tPos: FF156 dropped _tPos, and undefined === undefined
+    // passed the "moved back" half of this check on a tab that never moved.
+    const pos = () => gBrowser.tabs.indexOf(extra);
+    const before = pos();
     cmds.tabMoveLeft();
     check(
-      `tabMoveLeft did not move the tab (${before} -> ${extra._tPos})`,
-      extra._tPos === before - 1
+      `tabMoveLeft did not move the tab (${before} -> ${pos()})`,
+      pos() === before - 1
     );
     cmds.tabMoveRight();
     check(
-      `tabMoveRight did not move the tab (${before} -> ${extra._tPos})`,
-      extra._tPos === before
+      `tabMoveRight did not move the tab (${before} -> ${pos()})`,
+      pos() === before
     );
     // Wrap: from the last position, right goes back to the front.
     gBrowser.moveTabTo(extra, { tabIndex: gBrowser.tabs.length - 1 });
     cmds.tabMoveRight();
     check(
-      `tabMoveRight did not wrap (landed at ${extra._tPos})`,
-      extra._tPos < gBrowser.tabs.length - 1
+      `tabMoveRight did not wrap (landed at ${pos()})`,
+      pos() < gBrowser.tabs.length - 1
     );
     gBrowser.selectedTab = restore;
     gBrowser.removeTab(extra);

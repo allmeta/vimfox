@@ -5,9 +5,9 @@ Hard-won facts. Most were bugs first. Read before changing anything.
 ## Shape
 
 ```
-autoconfig.cfg (root, /usr/lib/firefox)
+autoconfig.cfg (root, /usr/lib/firefox or /usr/lib/librewolf)
   └─ boot.js            parent process, chrome privilege
-       ├─ resource://vimfox/  → ~/.vimfox   (PARENT ONLY)
+       ├─ resource://vimfox/  → the checkout (PARENT ONLY)
        ├─ child.js  read by parent, shipped to content as data: URI
        └─ window.js loaded per browser.xhtml window
             └─ src/{ui,omnibar,commands,keyset,selftest}.js
@@ -84,7 +84,6 @@ Ordered by how much they bite. Nothing here is subtle; these are all known.
 - No marks, quickmarks, or `.` repeat.
 - The `o` omnibar does not offer open tabs, and there are no per-engine search
   keywords (`:open g foo`).
-- Paths are hardcoded to `/home/thomal` in `boot.js` and `autoconfig.cfg`.
 
 **Structural, in the order that would pay off**
 
@@ -107,6 +106,15 @@ Ordered by how much they bite. Nothing here is subtle; these are all known.
 
 ## Environment traps
 
+- **`<profile>/.vimfox` turns vimfox on, and says where the checkout is.**
+  Empty means the profile is `<checkout>/profile` (run.sh's), so the checkout
+  is `ProfD.parent`; otherwise it holds the path (`~/` allowed) — that is how an
+  everyday profile gets vimfox. `autoconfig.cfg` registers `resource://vimfox/`
+  on it and `boot.js` reads the substitution back; no path is written anywhere.
+- **A pref vimfox NEEDS goes in `boot.js` as a default, not in `profile/user.js`.**
+  user.js only reaches run.sh's profile; an everyday profile never sees it.
+  `accessibility.typeaheadfind.timeout` lived there and `'` closed after 4s in
+  any other profile.
 - `general.config.sandbox_enabled=false` REQUIRED. Else `Cc is not defined`
   and nothing loads. Lives in `defaults/pref/autoconfig.js`, NOT `user.js` —
   AutoConfig runs before profile prefs.
@@ -115,6 +123,29 @@ Ordered by how much they bite. Nothing here is subtle; these are all known.
   nsIConverterInputStream.
 - `dump()` needs `browser.dom.window.dump.enabled`. `logStringMessage` does
   NOT reach stdout. Without the pref, failures are invisible.
+
+## LibreWolf
+
+- There is ONE `general.config.filename`. LibreWolf's omni.ja sets it to
+  `librewolf.cfg` (plus `sandbox_enabled=true`) in `defaults/pref/local-settings.js`;
+  our on-disk `defaults/pref/autoconfig.js` loads after omni.ja's and wins.
+  `autoconfig.cfg` therefore runs `librewolf.cfg` ITSELF, first, for every
+  profile — skipping that silently strips LibreWolf's whole config machine-wide.
+- It goes through a temporary `resource://vimfox-gre/` substitution, removed
+  right after. `resource://gre/` points INSIDE omni.ja and cannot reach the
+  file; `file:` is refused by FF155+.
+- **A cfg's `pref()` beats `user.js`.** `librewolf.cfg` `pref()`s
+  `browser.dom.window.dump.enabled` false, which silenced every `dump()` —
+  self-test result included — and looked exactly like vimfox not loading. The
+  vimfox branch re-applies the PROFILE'S OWN `user.js` through `pref()` after
+  it — never the checkout's, which would force the test profile's homepage and
+  sidebar onto an everyday profile at every startup.
+  `devtools.console.stdout.chrome` and `devtools.debugger.remote-enabled` were
+  the other two clashes.
+- `privacy.resistFingerprinting` is on. It spoofs keys for CONTENT only; the
+  keyset and the layout fallback run in the parent and are unaffected.
+- To test without sudo: `cp -a /usr/lib/librewolf` somewhere, drop the two
+  `system/` files into the copy, and `VIMFOX_BROWSER=<copy>/librewolf ./run.sh`.
 
 ## The bootstrap is resource://, not file://
 
@@ -661,7 +692,7 @@ Firefox's own `--class` is X11-only. There is no Firefox flag for window size
 node --check window.js src/*.js child.js boot.js   # FIRST. One second, and it
                                                   # catches the backtick-in-CSS
                                                   # trap that kills the loader.
-pgrep -f "[f]irefox --profile /home/thomal/.vimfox"   # [f] avoids self-match
+pgrep -f "[ ]--profile $PWD/profile"   # [ ] avoids self-match
 kill <pid>; sleep 3; rm -f vimfox.log
 VIMFOX_SELFTEST=1 nohup ./run.sh <url> > vimfox.log 2>&1 &
 sleep 22; grep -E "SELFTEST" vimfox.log
@@ -743,6 +774,15 @@ no-op — no throw, no log, the tab just does not move. Assume any other
 `gBrowser` call can go the same way, and prefer a self-test that observes the
 effect over one that only checks the call happened.
 
+FF156 removed `tab._tPos` (it is `tab.index` now). `undefined` made `gJ`/`gK`'s
+target `NaN` — silent no-op again — and let the self-test's "moved back" half
+pass on `undefined === undefined`. Both use `gBrowser.tabs.indexOf(tab)`.
+
+FF156 also moved SessionStore to
+`moz-src:///browser/components/sessionstore/SessionStore.sys.mjs`; the old
+`resource:///modules/…` URL throws and took all of window.js with it. window.js
+tries the new URL first.
+
 `discardBrowser(tab, force)` needs `force = true` — what Firefox's own "Unload
 tab" passes. Without it the browser IS discarded but never gets the
 `[discarded]` attribute, so the tab still looks loaded and the thing reads as
@@ -751,9 +791,9 @@ no-op on the SELECTED tab (`_mayDiscardBrowser` bails on `aTab.selected`).
 
 ## Fragile
 
-- `apt upgrade` wipes `system/` files. Re-run `system/install.sh`.
+- `apt upgrade` wipes `system/` files. Re-run `system/install.sh`. (pacman
+  leaves unowned files alone, so LibreWolf from the AUR keeps them.)
 - Mozilla intends to remove `sandbox_enabled`. Then: ESR or nothing.
-- Paths hardcoded to `/home/thomal`.
 - Urlbar internals are the least stable API in Firefox. FF152 already replaced
   it (`moz-urlbar` custom element + `SmartbarInput.mjs`). One dependency is
   taken on purpose — see "The one urlbar internal we do depend on". Add no

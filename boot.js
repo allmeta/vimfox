@@ -2,8 +2,6 @@
 "use strict";
 
 (() => {
-  const DIR = "/home/thomal/.vimfox";
-
   // `Services` is a chrome global in modern Firefox; the ESM was removed.
 
   // dump() reaches stdout (with browser.dom.window.dump.enabled); the console
@@ -11,15 +9,28 @@
   const log = (m) => dump(`vimfox: ${m}\n`);
   log("boot.js running");
 
-  // resource://vimfox/ -> ~/.vimfox, parent process only. Nothing in a content
-  // process resolves this scheme, by design (see the frame script below).
-  const dirFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-  dirFile.initWithPath(DIR);
-  Services.io
+  // resource://vimfox/ -> the checkout, parent process only. Nothing in a
+  // content process resolves this scheme, by design (see the frame script
+  // below). autoconfig.cfg registered it — it had to, to reach this file — and
+  // it is the one place the checkout's location is decided, so read it back
+  // rather than write a path down twice.
+  const DIR = Services.io
     .getProtocolHandler("resource")
     .QueryInterface(Ci.nsISubstitutingProtocolHandler)
-    .setSubstitution("vimfox", Services.io.newFileURI(dirFile));
-  log("resource://vimfox/ registered");
+    .getSubstitution("vimfox")
+    .QueryInterface(Ci.nsIFileURL).file.path;
+  log(`resource://vimfox/ is ${DIR}`);
+
+  // Prefs vimfox's behaviour rests on. DEFAULTS, so a value the user set still
+  // wins; here rather than in profile/user.js because any profile with a
+  // .vimfox marker runs this, not only the one run.sh launches.
+  //
+  // Quick-find never closes itself. findbar.js arms _setFindCloseTimeout() for
+  // every mode except FIND_NORMAL, and bails when the length is < 1 — so 0 is
+  // the off switch. `/` already opens FIND_NORMAL; this is what keeps `'` open,
+  // which has to stay FIND_LINKS to be links-only. Default is 4000.
+  Services.prefs.getDefaultBranch("")
+    .setIntPref("accessibility.typeaheadfind.timeout", 0);
 
   // ---- keybindings (parent process) ------------------------------------
   // Set up FIRST and guarded on its own. This is the part that must never die:

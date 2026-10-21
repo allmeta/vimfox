@@ -30,13 +30,33 @@ tab — the same path `Ctrl+W` takes.
 ## Install
 
 ```sh
-system/install.sh     # needs sudo; re-run after every Firefox upgrade
+system/install.sh     # needs sudo; re-run after every browser upgrade
 ./run.sh
 ```
+
+Works with Firefox (`/usr/lib/firefox`) and LibreWolf (`/usr/lib/librewolf`).
+`install.sh` installs into every one it finds, or into the directory you pass
+it; `run.sh` launches Firefox if present, else LibreWolf, or whatever
+`VIMFOX_BROWSER` points at.
+
+To use vimfox in an everyday profile instead, put the checkout's path in a
+`.vimfox` file in that profile and restart the browser:
+
+```sh
+echo ~/git/projects/vimfox > ~/.librewolf/<profile>/.vimfox
+```
+
+An empty `.vimfox` (what `profile/` ships with) means "the checkout is my
+parent directory", which is how `run.sh`'s profile finds it.
 
 `/usr/lib/firefox` belongs to the `firefox` deb, so a Firefox upgrade deletes
 both system files and vimfox silently stops loading. That is why they are
 tracked here.
+
+On LibreWolf, `autoconfig.cfg` takes over the one AutoConfig slot from
+`librewolf.cfg` and runs it first, so every LibreWolf profile keeps its
+settings. The AutoConfig sandbox is off install-wide, which LibreWolf's own
+config then also runs without.
 
 ## Self-test
 
@@ -149,4 +169,3 @@ reproduce frecency ordering.
 - Counts just run a command N times. Right for every motion here; a command
   wanting the number itself (vim's `42G`) would have to read it instead.
 - No open-tab results in the `o` omnibar, and no per-engine search keywords.
-- Paths are hardcoded to `/home/thomal`.

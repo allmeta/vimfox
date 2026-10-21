@@ -1,3 +1,6 @@
+// On LibreWolf this REPLACES librewolf.cfg as the config file — its omni.ja
+// sets both prefs below the other way. Files in the on-disk defaults/pref load
+// after omni.ja's, so these win; autoconfig.cfg then runs librewolf.cfg itself.
 pref("general.config.filename", "autoconfig.cfg");
 pref("general.config.obscure_value", 0);
 // Without this, autoconfig.cfg runs in a restricted sandbox exposing only the
