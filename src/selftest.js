@@ -23,7 +23,7 @@ this.vimfoxSelfTest = (vf) => {
     onContentFocus, onContentSelection, listCommands, yank, onLocationChange,
     pageHasFocus,
     deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
-    rankItems,
+    rankItems, rootUrl,
   } = vf;
 
   const fails = [];
@@ -62,12 +62,30 @@ this.vimfoxSelfTest = (vf) => {
     "open", "openTab", "editUrl", "commandLine", "bookmarks", "bookmarksTab",
     "tabSelect", "bookmarkPage", "openClipboard", "openClipboardTab",
     "windowNew", "windowPrivate", "restart", "passthrough", "insertMode",
-    "caretMode", "tabAlternate", "urlUp", "urlUpTab", "tabMoveLeft",
+    "caretMode", "tabAlternate", "urlUp", "urlRoot", "tabMoveLeft",
     "tabMoveRight", "tabFirst", "tabLast", "tabPrev", "tabNext", "tabMute",
     "yankUrl", "yankTitle", "yankDomain", "yankPretty", "yankMarkdown",
     "copySelection", "find", "findLinks", "zoomIn", "zoomOut", "zoomReset",
     "focusInput", "deleteWord", "tabDetach",
   ]);
+  // urlRoot navigates, so check the URL it would go to instead. Already at the
+  // root and origin-less URLs are both "go nowhere", not a reload.
+  for (const [from, want] of [
+    ["https://www.youtube.com/watch?v=IVroNP70DLA", "https://www.youtube.com/"],
+    ["https://example.com/a/b/#frag", "https://example.com/"],
+    ["http://localhost:8080/x?y=1", "http://localhost:8080/"],
+    ["https://www.youtube.com/", null],
+    ["about:config", null],
+    ["file:///home/x/test.html", null],
+  ]) {
+    const got = rootUrl(from);
+    check(`rootUrl(${from}) gave ${got}, wanted ${want}`, got === want);
+  }
+  check(
+    "win.openTrustedLinkIn is gone — gu/gU would do nothing",
+    typeof win.openTrustedLinkIn === "function"
+  );
+
   // tabDetach opens a window, so it cannot be called here. Assert the API it
   // rests on instead — moveTabTo already went silently no-op on drift once.
   check(

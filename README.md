@@ -107,7 +107,7 @@ Three things fall out of that design and are worth knowing before changing it:
 | `r` | reload |
 | `o` `O` | open in current / new tab |
 | `ge` | edit current URL |
-| `gu` `gU` | up one URL path (current / new tab) |
+| `gu` `gU` | up one URL path / to the site's root |
 | `gt` | tab search |
 | `b` `B` | bookmark search (current / new tab) |
 | `M` | bookmark page (Ctrl+D dialog) |

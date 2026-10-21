@@ -653,7 +653,7 @@
   })();
   const {
     cmds, BINDINGS, SEQUENCES, CARET_MOTIONS, CARET_EXTRA, ALWAYS_ON,
-    CHROME_INPUT_OK, LABELS, yank, currentURI, openFind,
+    CHROME_INPUT_OK, LABELS, yank, currentURI, openFind, rootUrl,
   } = commands;
 
   // ------------------------------------------------------------- keyset ---
@@ -938,7 +938,7 @@
         fallbackApplies: (m) => !!MODES[m]?.keys,
         fallbackWants,
         deleteLineIn, deleteWordIn, highlight, matchesAllTerms, computeRelevancy,
-        rankItems,
+        rankItems, rootUrl,
         get mode() { return mode; },
         get pending() { return pending; },
         get caretSelecting() { return caretSelecting; },

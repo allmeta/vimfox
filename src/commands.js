@@ -102,6 +102,20 @@ this.vimfoxCommands = (vf) => {
     }
   }
 
+  // The site's root: https://www.youtube.com/watch?v=… -> https://www.youtube.com/.
+  // null when there is nowhere to go — already there, or a URL with no real
+  // origin (about:, file:, data:), whose `origin` is the string "null".
+  function rootUrl(spec) {
+    try {
+      const url = new win.URL(spec);
+      if (url.origin === "null") return null;
+      const root = `${url.origin}/`;
+      return root === url.href ? null : root;
+    } catch {
+      return null;
+    }
+  }
+
   function openFind(linksOnly) {
     // FIND_NORMAL, not FIND_TYPEAHEAD: findbar.js arms _setFindCloseTimeout for
     // every mode EXCEPT normal, so quick-find closed itself after
@@ -240,7 +254,10 @@ this.vimfoxCommands = (vf) => {
 
     // --- url / clipboard --------------------------------------------------
     urlUp:            () => urlUp("current"),
-    urlUpTab:         () => urlUp("tab"),
+    urlRoot:          () => {
+      const root = rootUrl(currentURI()?.spec);
+      if (root) win.openTrustedLinkIn(root, "current");
+    },
     yankUrl:          () => yank(currentURI()?.spec),
     yankTitle:        () => yank(gBrowser.selectedTab.label),
     yankPretty:       () => yank(prettyURL()),
@@ -391,7 +408,7 @@ this.vimfoxCommands = (vf) => {
       0: "tabFirst",
       $: "tabLast",
       u: "urlUp",
-      U: "urlUpTab",
+      U: "urlRoot",
       l: "tabAlternate",
     },
     w: {
@@ -437,7 +454,7 @@ this.vimfoxCommands = (vf) => {
     tabFirst: "first tab",
     tabLast: "last tab",
     urlUp: "up one URL path",
-    urlUpTab: "up one URL path (new tab)",
+    urlRoot: "go to the site's root",
     tabAlternate: "last used tab",
     windowNew: "new window",
     windowPrivate: "new private window",
@@ -454,6 +471,6 @@ this.vimfoxCommands = (vf) => {
     cmds, BINDINGS, SEQUENCES, CARET_MOTIONS, CARET_EXTRA, ALWAYS_ON,
     CHROME_INPUT_OK, LABELS,
     // Reached for elsewhere: the ex table and the self-test.
-    yank, currentURI, moveTab, openFind,
+    yank, currentURI, moveTab, openFind, rootUrl,
   };
 };
